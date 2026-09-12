@@ -223,9 +223,15 @@ function castUrl() {
   return px + encodeURIComponent(lv.url);
 }
 async function doCast() {
-  // 1) Remote Playback API (Chromecast/TV bawaan browser)
+  // 1) Remote Playback API (Chromecast/TV bawaan browser) — dibatasi 4 dtk agar tak menggantung
   try {
-    if (v.remote && v.remote.prompt) { await v.remote.prompt(); return; }
+    if (v.remote && v.remote.prompt) {
+      await Promise.race([
+        v.remote.prompt(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+      ]);
+      return;
+    }
   } catch(e) {}
   // 2) Android: lempar stream ke VLC (fallback: buka link biasa)
   const stream = castUrl();
