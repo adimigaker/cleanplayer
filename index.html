@@ -7,14 +7,27 @@
 <title>Clean Player</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <style>
+  *{box-sizing:border-box}
   body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
   h2{color:#fff}label{font-size:13px;color:#aaa}
-  input,select{width:100%;padding:10px;font-size:14px;margin:4px 0 12px;background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px;box-sizing:border-box}
-  .row{display:flex;gap:12px}.row>div{flex:1}
+  input[type=text]{width:100%;padding:10px;font-size:14px;margin:4px 0 12px;background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px}
+  select{background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px}
   button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
-  video{width:100%;aspect-ratio:16/9;background:#000;border:none;border-radius:12px;margin-top:16px}
   p.note{font-size:12px;color:#888}
   #status{font-size:13px;color:#0f0;margin-top:8px;white-space:pre-wrap}
+  /* ── Custom player ── */
+  #stage{position:relative;margin-top:16px;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 0 24px rgba(0,255,0,.08)}
+  #v{width:100%;aspect-ratio:16/9;display:block;background:#000}
+  #bigplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,.25)}
+  #bigplay span{width:84px;height:84px;border-radius:50%;background:rgba(0,255,0,.9);color:#000;font-size:36px;display:flex;align-items:center;justify-content:center;padding-left:6px}
+  #title{position:absolute;top:0;left:0;right:0;padding:10px 14px;font-size:15px;font-weight:bold;background:linear-gradient(rgba(0,0,0,.7),transparent);pointer-events:none}
+  #bar{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(10,10,18,.92)}
+  #bar button{background:#222;color:#0f0;border:1px solid #0f0;padding:6px 12px;font-size:14px;border-radius:6px}
+  #bar button.on{background:#0f0;color:#000}
+  #seek{flex:1;accent-color:#0f0}
+  #time{font-size:12px;color:#aaa;white-space:nowrap}
+  #vol{width:80px;accent-color:#0f0}
+  #bar select{padding:6px;font-size:13px}
 </style>
 </head>
 <body>
@@ -22,28 +35,82 @@
 <p class="note">Tempel URL embed seeks, player otomatis ambil token + m3u8 + subtitle lalu memutar.</p>
 
 <label>URL embed seeks</label>
-<input id="embed" value="" placeholder="https://ps21.seeks.cloud/#plq5e">
-<label style="display:none">Proxy<input id="proxy" value="/proxy?url="></label>
-<div class="row">
-  <div><label>Kualitas</label><select id="q"><option value="-1">Auto</option></select></div>
-  <div><label>&nbsp;</label><button onclick="start()" style="width:100%">Putar</button></div>
-</div>
+<input id="embed" type="text" value="" placeholder="https://ps21.seeks.cloud/#plq5e">
+<div><button id="btnGo" onclick="start()" style="width:100%">Putar</button></div>
+<label style="display:none">Proxy<input id="proxy" type="text" value="/proxy?url="></label>
 
-<video id="v" controls playsinline>
-  <track id="trk" label="Indonesia" kind="subtitles" srclang="id" default>
-</video>
+<div id="stage">
+  <video id="v" playsinline crossorigin="anonymous"></video>
+  <div id="title"></div>
+  <div id="bigplay" onclick="togglePlay()"><span>▶</span></div>
+  <div id="bar">
+    <button id="btnPlay" onclick="togglePlay()">▶</button>
+    <span id="time">0:00 / 0:00</span>
+    <input id="seek" type="range" min="0" max="1000" value="0">
+    <button id="btnMute" onclick="toggleMute()">🔊</button>
+    <input id="vol" type="range" min="0" max="100" value="100">
+    <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
+    <select id="subSel" onchange="pickSub(this.value)" style="max-width:130px"></select>
+    <select id="q"><option value="-1">Auto</option></select>
+    <button onclick="toggleFS()">⛶</button>
+  </div>
+</div>
 <div id="status">Menunggu URL…</div>
 
 <script>
 const KEY = 'kiemtienmua911ca', IV = '1234567890oiuytr';
 const te = new TextEncoder(), td = new TextDecoder();
-let hls = null, starting = false, fragErr = 0;
-const st = (m) => { document.getElementById('status').textContent = m; };
+let hls = null, starting = false, fragErr = 0, subTracks = [];
+const $ = (id) => document.getElementById(id);
+const st = (m) => { $('status').textContent = m; };
+const v = $('v');
 
 function hashId(embedUrl) {
   const m = String(embedUrl).match(/#([A-Za-z0-9]+)/);
   return m ? m[1] : String(embedUrl).trim();
 }
+const fmt = (s) => {
+  if (!isFinite(s) || s < 0) return '0:00';
+  s = Math.floor(s);
+  return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+};
+// ── Kontrol custom ──
+function togglePlay() { v.paused ? v.play().catch(()=>{}) : v.pause(); }
+function toggleMute() { v.muted = !v.muted; $('btnMute').textContent = v.muted ? '🔇' : '🔊'; }
+function toggleFS() {
+  const stg = $('stage');
+  if (document.fullscreenElement) document.exitFullscreen();
+  else if (stg.requestFullscreen) stg.requestFullscreen();
+}
+function toggleCC() {
+  const tr = v.textTracks;
+  let anyOn = false;
+  for (const t of tr) if (t.mode === 'showing') anyOn = true;
+  const next = anyOn ? 'hidden' : 'showing';
+  for (const t of tr) t.mode = next;
+  $('btnCC').className = anyOn ? '' : 'on';
+  st(anyOn ? 'Subtitle mati.' : 'Subtitle menyala.');
+}
+function pickSub(i) {
+  const tr = v.textTracks;
+  [...tr].forEach((t, k) => t.mode = (String(k) === String(i) ? 'showing' : 'hidden'));
+  $('btnCC').className = 'on';
+}
+v.addEventListener('play', () => { $('btnPlay').textContent = '⏸'; $('bigplay').style.display = 'none'; });
+v.addEventListener('pause', () => { $('btnPlay').textContent = '▶'; $('bigplay').style.display = 'flex'; });
+v.addEventListener('timeupdate', () => {
+  if (v.duration) $('seek').value = Math.round(v.currentTime / v.duration * 1000);
+  $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
+});
+v.addEventListener('loadedmetadata', () => { $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration); });
+$('seek').addEventListener('input', (e) => {
+  if (v.duration) v.currentTime = e.target.value / 1000 * v.duration;
+});
+$('vol').addEventListener('input', (e) => {
+  v.volume = e.target.value / 100; v.muted = false; $('btnMute').textContent = '🔊';
+});
+// ── Streaming ──
+const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
 async function fetchVideoMeta(id) {
   const w = window.screen.width || 800, h = window.screen.height || 600;
   const r = await fetch('https://ps21.seeks.cloud/api/v1/video?id=' + encodeURIComponent(id) + '&w=' + w + '&h=' + h + '&r=');
@@ -53,51 +120,68 @@ async function fetchVideoMeta(id) {
   const pt = await crypto.subtle.decrypt({name:'AES-CBC', iv: te.encode(IV)}, key, data);
   return JSON.parse(td.decode(pt));
 }
-const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
 async function fetchRewritten(url, proxy) {
-  // Master/varian dimuat LANGSUNG (server kirim ACAO:*); hanya SEGMEN+MAP yg lewat proxy.
   const txt = await (await fetch(url)).text();
   if (!txt.trim().startsWith('#EXTM3U')) throw new Error('Master bukan playlist.');
   const px = proxy.startsWith('http') ? proxy : location.origin + proxy;
-  const needPx = (u) => /seeks\.cloud|stellarpathmedia|adaptiveframework|94\.131\.217\./.test(u);
   const viaPx = (u) => px + encodeURIComponent(u);
   return txt.split('\n').map(line => {
     const s = line.trim();
     const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
-    if (m) {
-      const abs = new URL(m[2], url).href;
-      return m[1] + viaPx(abs) + m[3]; // MAP/init: selalu via proxy
-    }
-    if (s && !s.startsWith('#')) {
-      const abs = new URL(s, url).href;
-      return viaPx(abs); // varian & segmen: selalu via proxy terpilih
-    }
+    if (m) return m[1] + viaPx(new URL(m[2], url).href) + m[3];
+    if (s && !s.startsWith('#')) return viaPx(new URL(s, url).href);
     return line;
   }).join('\n');
 }
-async function playMaster(masterUrl, proxy, subUrl, title) {
-  const v = document.getElementById('v');
-  if (hls) { hls.destroy(); hls = null; }
-  document.getElementById('q').innerHTML = '<option value="-1">Auto</option>';
-  if (subUrl) {
-    const subs = [proxy, ...FALLBACKS.filter(p => p !== proxy)];
-    for (const px0 of subs) {
+async function loadSubtitles(meta, proxy) {
+  // bersihkan track lama
+  [...v.querySelectorAll('track')].forEach(t => t.remove());
+  subTracks = [];
+  $('subSel').innerHTML = '';
+  const subs = meta.subtitle || {};
+  const names = Object.keys(subs);
+  const cands = [proxy, ...FALLBACKS.filter(p => p !== proxy)];
+  let okCount = 0;
+  for (const name of names) {
+    const subUrl = 'https://ps21.seeks.cloud' + String(subs[name]).split('#')[0];
+    let done = false;
+    for (const px0 of cands) {
       try {
         const px = px0.startsWith('http') ? px0 : location.origin + px0;
-        const blob = await (await fetch(px + encodeURIComponent(subUrl))).blob();
-        if (blob.size > 100) {
-          document.getElementById('trk').src = URL.createObjectURL(blob);
-          break;
+        const durl = px + encodeURIComponent(subUrl);
+        const txt = await (await fetch(durl)).text();
+        if (txt.length > 100 && txt.trim().startsWith('WEBVTT')) {
+          const t = document.createElement('track');
+          t.kind = 'subtitles'; t.label = name; t.srclang = 'id';
+          t.src = durl; // URL langsung (blob tak di-parse Chrome)
+          if (okCount === 0) t.default = true;
+          v.appendChild(t);
+          const o = document.createElement('option');
+          o.value = String(okCount); o.textContent = name;
+          $('subSel').appendChild(o);
+          okCount++; done = true; break;
         }
       } catch(e) {}
     }
+    if (!done) st('Subtitle "' + name + '" gagal dimuat.');
   }
+  if (okCount) {
+    $('btnCC').className = 'on';
+  } else if (names.length) {
+    st('Tidak ada subtitle yg berhasil dimuat.');
+  }
+  return okCount;
+}
+async function playMaster(masterUrl, proxy, meta) {
+  const title = meta && meta.title;
+  if (hls) { hls.destroy(); hls = null; }
+  $('q').innerHTML = '<option value="-1">Auto</option>';
   const finalUrl = URL.createObjectURL(new Blob(
     [await fetchRewritten(masterUrl, proxy)], {type:'application/vnd.apple.mpegurl'}));
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({
       maxBufferLength: 30,
-      startLevel: 0, // mulai dari kualitas terendah (hemat data)
+      startLevel: 0,
       fragLoadingMaxRetry: 6,
       manifestLoadingMaxRetry: 4,
       levelLoadingMaxRetry: 6,
@@ -109,9 +193,11 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
     hls.attachMedia(v);
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
       starting = false;
+      loadSubtitles(meta, proxy); // setelah media attach agar track tak ter-reset
       st('OK — ' + (title ? title + ' — ' : '') + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
+      $('title').textContent = title || '';
       document.title = '▶ ' + (title || 'Clean Player');
-      const q = document.getElementById('q');
+      const q = $('q');
       data.levels.forEach((l, i) => {
         const o = document.createElement('option');
         o.value = i; o.textContent = (l.height || '?') + 'p (' + Math.round(l.bitrate/1000) + ' kbps)';
@@ -123,8 +209,8 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
       if (data.type === 'networkError' && !data.fatal) {
         fragErr++;
         if (fragErr >= 3 && hls) {
-          hls.currentLevel = 0; // kunci ke terendah, stop ABR loncat
-          document.getElementById('q').value = '0';
+          hls.currentLevel = 0;
+          $('q').value = '0';
           st('Jaringan goyah — dikunci ke kualitas terendah.');
         }
       }
@@ -137,26 +223,23 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
-  let proxy = document.getElementById('proxy').value.trim();
+  let proxy = $('proxy').value.trim();
   try {
-    // Proxy otomatis dari repo (ditulis oleh tunnel di server) — nol konfigurasi.
-    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
-    if (auto.startsWith('http')) proxy = auto;
-  } catch(e) {}
-  try {
-    const id = hashId(document.getElementById('embed').value);
+    try {
+      const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+      if (auto.startsWith('http')) proxy = auto;
+    } catch(e) {}
+    const id = hashId($('embed').value);
     if (!id) { st('Isi URL embed dulu.'); return; }
     st('Minta token untuk ' + id + '...');
     const meta = await fetchVideoMeta(id);
     const master = meta.cfNative || meta.source;
     if (!master) { st('Tidak ada stream untuk ID ini.'); return; }
-    const subPath = meta.subtitle && (meta.subtitle['Bahasa Indonesia'] || Object.values(meta.subtitle)[0]);
-    const subUrl = subPath ? 'https://ps21.seeks.cloud' + String(subPath).split('#')[0] : '';
     st('Token OK — memuat playlist...');
-    await playMaster(master, proxy, subUrl, meta.title);
+    await playMaster(master, proxy, meta);
   } catch(e) { starting = false; st('Gagal: ' + e.message); }
 }
-document.getElementById('q').addEventListener('change', (e) => {
+$('q').addEventListener('change', (e) => {
   if (hls) hls.currentLevel = parseInt(e.target.value, 10);
 });
 </script>
