@@ -2,24 +2,24 @@
 <html><head><meta charset="utf-8"><title>Clean Player — 2 Player</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:20px;max-width:960px;margin:auto}h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}button{padding:10px 24px;font-size:16px;cursor:pointer}section{margin-top:30px;border-top:2px solid #444;padding-top:20px}iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:8px;background:#222}</style></head>
 <body>
 <h2>Clean Player — Uji 2 Player</h2>
-<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Paste embed URL">
+<input id="url" value="/movies/wu xia/wu_xia_movie.mp4" placeholder="Paste video URL (direct .mp4) atau embed">
 <button onclick="load()">Render</button>
 
 <section>
-<h3>1. Player Default (iframe seperti piratestudio21)</h3>
+<h3>1. Player Default (iframe — seperti piratestudio21, bisa terserang iklan embed)</h3>
 <iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe>
 </section>
 
 <section>
-<h3>2. Custom Player (iframe bersih / video tag)</h3>
-<iframe id="cus" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;"></iframe>
-<p style="font-size:12px;color:#aaa">Custom: tampilan bersih, embed Abyss langsung.</p>
+<h3>2. Custom Player (video tag bersih — file lokal, tanpa iklan)</h3>
+<video id="cus" controls src="/movies/wu xia/wu_xia_movie.mp4" poster=""></video>
+<p style="font-size:12px;color:#aaa">Custom: file lokal `wu_xia_movie.mp4` (1.5GB). Tidak ada iframe = tidak ada domain iklan Abyss.</p>
 </section>
 
 <script>
 function load() {
   const u = document.getElementById('url').value.trim();
-  document.getElementById('def').src = u;
+  document.getElementById('def').src = u.indexOf('http')===0 ? u : 'https://player.abyssplayer.com/Ny6cNEtDci';
   document.getElementById('cus').src = u;
 }
 </script>
