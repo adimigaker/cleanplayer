@@ -1,36 +1,80 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Custom Player — Multi Resolution</title><style>body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}h2{color:#fff}select,input{padding:10px;font-size:15px;width:100%;margin-bottom:12px;background:#222;color:#eee;border:1px solid #444;border-radius:6px}button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer}video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}p.note{font-size:12px;color:#aaa}</style></head>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clean Player — Custom HLS + Subtitle</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<style>
+  body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
+  h2{color:#fff}label{font-size:13px;color:#aaa}
+  input,select{width:100%;padding:10px;font-size:14px;margin:4px 0 12px;background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px;box-sizing:border-box}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
+  video{width:100%;aspect-ratio:16/9;background:#000;border:none;border-radius:12px;box-shadow:0 0 24px rgba(0,255,0,.08);margin-top:16px}
+  p.note{font-size:12px;color:#888}
+  #status{font-size:13px;color:#0f0;margin-top:8px}
+</style>
+</head>
 <body>
+<h2>Clean Player — Custom HLS + Subtitle Indonesia</h2>
+<p class="note">Player buatan sendiri: hls.js + &lt;video&gt; + &lt;track&gt;. Tanpa iframe Abyss = tanpa iklan/embed pihak ketiga.</p>
 
-<!-- STATUS SEKS: seoks cloud (SPA Vidstack) membutuhkan browser/headless aktif untuk ekstrak .mp4/.m3u8. Browser saat ini timeout (120s). Sumber alternatif siap: anisphia.my.id (kuramanime) dengan 4 resolusi langsung. -->
+<label>Master .m3u8 URL</label>
+<input id="src" value="https://ps21.seeks.cloud/v4/pl/spz.stellarpathmedia.sbs/3ae/plq5e/master.1787566257.m3u8?k=b93vrLgDdJko3p1a5imjJA&kx=1789226574">
+<label>Subtitle .vtt URL (Indonesia)</label>
+<input id="sub" value="https://ps21.seeks.cloud/VsbUDDxl3mpVQzZj1XyctA/3ae/5z1ivvbc/8gjldh/LRpEdq.vtt">
+<div class="row">
+  <div><label>Kualitas</label><select id="q"><option value="-1">Auto</option></select></div>
+  <div><label>&nbsp;</label><button onclick="load()" style="width:100%">Putar</button></div>
+</div>
 
-<h2>Custom Player — Multi Size (Sumber dari kuramanime / seeks)</h2>
-<p>Input URL sumber (misal .mp4 dari anisphia / seeks), pilih resolusi:</p>
-<input id="srcUrl" placeholder="URL video (.mp4) atau halaman embed" value="https://anisphia.my.id/kdrive/L76Z3oHcJg2Oq/Kuramanime-OMOMARN_MOV_BD-1080p.mp4?lud=1789100254&pid=53933&sid=279312&cce=" />
-<select id="res"><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option></select>
-<button onclick="loadRes()">Render</button>
-
-<video id="v" controls poster="" crossorigin="anonymous"></video>
-<p class="note">Custom multi-size: pilih resolusi, video langsung dari sumber (tidak pakai iframe Abyss).</p>
+<video id="v" controls playsinline crossorigin="anonymous">
+  <track id="trk" label="Indonesia" kind="subtitles" srclang="id" default>
+</video>
+<div id="status">Siap.</div>
+<p class="note">Token k/kx kedaluwarsa berkala — jika error, refresh via <code>/api/v1/video</code> (lihat skill seeks-stream-extract).</p>
 
 <script>
-function loadRes() {
-  const base = document.getElementById('srcUrl').value.trim();
-  const res = document.getElementById('res').value;
-  // Contoh: jika URL sudah lengkap, pakai langsung; jika hanya dasar, tambahkan resolusi
-  let url = base;
-  // Demo mapping kuramanime (anisphia) — bisa diganti dengan mapping seeks/cloud
-  const mappings = {
-    '1080': 'https://anisphia.my.id/kdrive/L76Z3oHcJg2Oq/Kuramanime-OMOMARN_MOV_BD-1080p.mp4?lud=1789100254&pid=53933&sid=279312&cce=',
-    '720': 'https://anisphia.my.id/kdrive/7tUdzoN52eD/Kuramanime-OMOMARN_MOV_BD-720p.mp4?lud=1789100252&pid=53933&sid=279311&cce=',
-    '480': 'https://anisphia.my.id/kdrive/KqZ1hqBw1ecx8qJ/Kuramanime-OMOMARN_MOV_BD-480p.mp4?lud=1789100251&pid=53933&sid=279310&cce=',
-    '360': 'https://anisphia.my.id/kdrive/WECgIUUAggrK82/Kuramanime-OMOMARN_MOV_BD-360p.mp4?lud=1789100249&pid=53933&sid=279309&cce=1'
-  };
-  if (mappings[res]) url = mappings[res];
-  document.getElementById('v').src = url;
-  document.getElementById('v').load();
+let hls = null;
+function load() {
+  const src = document.getElementById('src').value.trim();
+  const sub = document.getElementById('sub').value.trim();
+  const v = document.getElementById('v');
+  const st = document.getElementById('status');
+  document.getElementById('trk').src = sub;
+  if (hls) { hls.destroy(); hls = null; }
+  document.getElementById('q').innerHTML = '<option value="-1">Auto</option>';
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls({ maxBufferLength: 30 });
+    hls.loadSource(src);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+      st.textContent = 'Manifest OK — ' + data.levels.length + ' kualitas: ' +
+        data.levels.map(l => l.height + 'p').join(', ');
+      const q = document.getElementById('q');
+      data.levels.forEach((l, i) => {
+        const o = document.createElement('option');
+        o.value = i; o.textContent = (l.height || '?') + 'p (' + Math.round(l.bitrate/1000) + ' kbps)';
+        q.appendChild(o);
+      });
+      v.play().catch(() => {});
+    });
+    hls.on(Hls.Events.ERROR, (e, data) => {
+      if (data.fatal) st.textContent = 'Error: ' + data.type + ' / ' + data.details + ' (mungkin token kedaluwarsa)';
+    });
+  } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = src;
+    st.textContent = 'Native HLS (Safari).';
+    v.play().catch(() => {});
+  } else {
+    st.textContent = 'Browser tidak mendukung HLS.';
+  }
 }
-loadRes();
+document.getElementById('q').addEventListener('change', (e) => {
+  if (hls) hls.currentLevel = parseInt(e.target.value, 10);
+});
+load();
 </script>
-<p class="note"><b>Seeks (ps21.seeks.cloud/#plq5e):</b> SPA berbasis Vidstack (vidstack-*.js), stream dimuat dinamis. Perlu browser/headless atau API internal untuk ekstrak URL .mp4/.m3u8. Sumber langsung dari kuramanime: anisphia.my.id (1080/720/480/360p).</p>
-</body></html>
+</body>
+</html>
