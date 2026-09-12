@@ -1,32 +1,26 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Player — Stellar HLS</title><style>
+<html><head><meta charset="utf-8"><title>Clean Player — 2 Player</title><style>
 body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
 h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}
 button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}
 section{margin-top:30px;border-top:2px solid #333;padding-top:20px}
-video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}
+ iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}
 p.note{font-size:12px;color:#aaa}
 </style></head>
 <body>
-<h2>Clean Player — Stream dari stellarpathmedia.sbs (HLS manifest)</h2>
-<input id="url" value="https://spz.stellarpathmedia.sbs/v4/3ae/plq5e/index-f2-v1-a1.txt?k=4G94BPohsLfp0e6sXMRh9w&kx=1789206809" placeholder="Manifest HLS URL (txt)">
-<button onclick="load()">Render Custom</button>
+<h2>Clean Player — 2 Player (Sumber Sama, Tampilan Beda)</h2>
+<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Abyss URL atau Seeks URL">
+<button onclick="load()">Render</button>
 
-<section><h3>Custom Video (langsung ke manifest HLS — bersih, tidak ada iframe Abyss)</h3>
-<video id="cus" controls crossorigin="anonymous"></video>
-<p class="note">Custom: memuat manifest HLS dari stellarpathmedia.sbs (dalam .txt, segment .woff2). Tidak pakai iframe Abyss = tidak ada kontrol/iklan dari Abyss.</p>
-</section>
+<section><h3>P1 — Default Iframe (tanpa custom)</h3><iframe id="p1" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe><p class="note">Default: embed asli Abyss/Seeks.</p></section>
 
-<section><h3>Default (iframe Abyss — untuk perbandingan)</h3><iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="width:100%;aspect-ratio:16/9;border:none;border-radius:8px;"></iframe></section>
+<section><h3>P2 — Custom Player (streaming sumber sama, wrapper bersih sendiri)</h3><iframe id="p2" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;"></iframe><p class="note">Custom: sumber sama (<code>player.abyssplayer.com/Ny6cNEtDci</code>), tapi wrapper/penampilan kita sendiri (tanpa tambahan, hanya iframe bersih).</p></section>
 
 <script>
 function load() {
   const u = document.getElementById('url').value.trim();
-  const v = document.getElementById('cus');
-  // HLS manifest bisa diputar langsung oleh browser jika server mengirim MIME tepat
-  v.src = u;
-  v.load();
-  document.getElementById('def').src = 'https://player.abyssplayer.com/Ny6cNEtDci';
+  document.getElementById('p1').src = u;
+  document.getElementById('p2').src = u;
 }
 load();
 </script>
