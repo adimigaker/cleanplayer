@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Clean Player — Custom HLS + Subtitle</title>
+<title>Clean Player</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <style>
   body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
@@ -12,18 +12,18 @@
   input,select{width:100%;padding:10px;font-size:14px;margin:4px 0 12px;background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px;box-sizing:border-box}
   .row{display:flex;gap:12px}.row>div{flex:1}
   button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
-  video{width:100%;aspect-ratio:16/9;background:#000;border:none;border-radius:12px;box-shadow:0 0 24px rgba(0,255,0,.08);margin-top:16px}
+  video{width:100%;aspect-ratio:16/9;background:#000;border:none;border-radius:12px;margin-top:16px}
   p.note{font-size:12px;color:#888}
   #status{font-size:13px;color:#0f0;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<h2>Clean Player — Custom HLS + Subtitle Indonesia</h2>
-<p class="note">Player buatan sendiri (hls.js + &lt;video&gt; + &lt;track&gt;). Token refresh otomatis via API seeks.</p>
+<h2>Clean Player</h2>
+<p class="note">Tempel URL embed seeks, player otomatis ambil token + m3u8 + subtitle lalu memutar.</p>
 
-<label>ID Video seeks (hash #...)</label>
-<input id="vid" value="plq5e">
-<label>Proxy base (wajib HTTPS; dev lokal: /proxy?url= — prod: URL worker-mu, lihat worker.js)</label>
+<label>URL embed seeks</label>
+<input id="embed" value="" placeholder="https://ps21.seeks.cloud/#plq5e">
+<label>Proxy base (dev lokal: /proxy?url= — prod: URL worker, lihat worker.js)</label>
 <input id="proxy" value="/proxy?url=">
 <div class="row">
   <div><label>Kualitas</label><select id="q"><option value="-1">Auto</option></select></div>
@@ -33,8 +33,7 @@
 <video id="v" controls playsinline>
   <track id="trk" label="Indonesia" kind="subtitles" srclang="id" default>
 </video>
-<div id="status">Siap.</div>
-<p class="note">Deploy: salin worker.js ke Cloudflare Workers (gratis), isi kolom proxy dengan https://&lt;worker&gt;.workers.dev/?url=</p>
+<div id="status">Menunggu URL…</div>
 
 <script>
 const KEY = 'kiemtienmua911ca', IV = '1234567890oiuytr';
@@ -42,6 +41,10 @@ const te = new TextEncoder(), td = new TextDecoder();
 let hls = null;
 const st = (m) => { document.getElementById('status').textContent = m; };
 
+function hashId(embedUrl) {
+  const m = String(embedUrl).match(/#([A-Za-z0-9]+)/);
+  return m ? m[1] : String(embedUrl).trim();
+}
 async function fetchVideoMeta(id) {
   const w = window.screen.width || 800, h = window.screen.height || 600;
   const r = await fetch('https://ps21.seeks.cloud/api/v1/video?id=' + encodeURIComponent(id) + '&w=' + w + '&h=' + h + '&r=');
@@ -52,7 +55,7 @@ async function fetchVideoMeta(id) {
   return JSON.parse(td.decode(pt));
 }
 async function fetchRewritten(url, proxy) {
-  // Idempoten: baris yg sudah '/proxy?url=' hanya diabsolutkan (server jg rewrite varian).
+  // Idempoten: baris yg sudah '/proxy?url=' hanya diabsolutkan.
   const px = proxy.startsWith('http') ? proxy : location.origin + proxy;
   const absProxy = (s) => {
     if (s.includes('proxy?url=')) return s.startsWith('http') ? s : location.origin + s;
@@ -70,7 +73,7 @@ async function fetchRewritten(url, proxy) {
     return line;
   }).join('\n');
 }
-async function playMaster(masterUrl, proxy, subUrl) {
+async function playMaster(masterUrl, proxy, subUrl, title) {
   const v = document.getElementById('v');
   if (hls) { hls.destroy(); hls = null; }
   document.getElementById('q').innerHTML = '<option value="-1">Auto</option>';
@@ -86,11 +89,9 @@ async function playMaster(masterUrl, proxy, subUrl) {
     hls = new Hls({ maxBufferLength: 30 });
     hls.loadSource(finalUrl);
     hls.attachMedia(v);
-    hls.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) st('Error: ' + data.details + ' — cek proxy/token.');
-    });
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
-      st('OK — ' + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
+      st('OK — ' + (title ? title + ' — ' : '') + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
+      document.title = '▶ ' + (title || 'Clean Player');
       const q = document.getElementById('q');
       data.levels.forEach((l, i) => {
         const o = document.createElement('option');
@@ -99,6 +100,9 @@ async function playMaster(masterUrl, proxy, subUrl) {
       });
       v.play().catch(() => {});
     });
+    hls.on(Hls.Events.ERROR, (e, data) => {
+      if (data.fatal) st('Error: ' + data.details + ' — cek proxy.');
+    });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
     v.src = finalUrl; v.play().catch(() => {}); st('Native HLS.');
   } else st('Browser tidak mendukung HLS.');
@@ -106,15 +110,16 @@ async function playMaster(masterUrl, proxy, subUrl) {
 async function start() {
   const proxy = document.getElementById('proxy').value.trim();
   try {
-    const id = document.getElementById('vid').value.trim();
-    st('Refresh token via API...');
+    const id = hashId(document.getElementById('embed').value);
+    if (!id) { st('Isi URL embed dulu.'); return; }
+    st('Minta token untuk ' + id + '...');
     const meta = await fetchVideoMeta(id);
     const master = meta.cfNative || meta.source;
-    const subPath = meta.subtitle && meta.subtitle['Bahasa Indonesia'];
-    const subUrl = subPath ? 'https://ps21.seeks.cloud' + subPath.split('#')[0] : '';
-    document.title = '▶ ' + (meta.title || id);
-    st('Master OK, memuat playlist...');
-    await playMaster(master, proxy, subUrl);
+    if (!master) { st('Tidak ada stream untuk ID ini.'); return; }
+    const subPath = meta.subtitle && (meta.subtitle['Bahasa Indonesia'] || Object.values(meta.subtitle)[0]);
+    const subUrl = subPath ? 'https://ps21.seeks.cloud' + String(subPath).split('#')[0] : '';
+    st('Token OK — memuat playlist...');
+    await playMaster(master, proxy, subUrl, meta.title);
   } catch(e) { st('Gagal: ' + e.message); }
 }
 document.getElementById('q').addEventListener('change', (e) => {
