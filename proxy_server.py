@@ -93,4 +93,4 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-ThreadingHTTPServer(('127.0.0.1', 8902), H).serve_forever()
+ThreadingHTTPServer(('0.0.0.0', 8902), H).serve_forever()
