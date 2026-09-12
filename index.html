@@ -66,12 +66,11 @@ async function fetchRewritten(url, proxy) {
     const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
     if (m) {
       const abs = new URL(m[2], url).href;
-      return m[1] + (needPx(abs) ? viaPx(abs) : abs) + m[3];
+      return m[1] + viaPx(abs) + m[3]; // MAP/init: selalu via proxy
     }
     if (s && !s.startsWith('#')) {
       const abs = new URL(s, url).href;
-      if (/\.m3u8(\?|$)/.test(abs)) return abs; // varian: langsung
-      return needPx(abs) ? viaPx(abs) : abs;    // segmen: via proxy
+      return viaPx(abs); // varian & segmen: selalu via proxy terpilih
     }
     return line;
   }).join('\n');
@@ -111,6 +110,7 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
       v.play().catch(() => {});
     });
     hls.on(Hls.Events.ERROR, (e, data) => {
+      window.__le = (data.details || '') + ' :: ' + String(data.url || (data.context && data.context.url) || '').slice(0,160) + ' :: http' + (data.response ? data.response.code : '?');
       if (data.fatal) st('Error: ' + data.details + ' — cek proxy.');
     });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
