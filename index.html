@@ -15,8 +15,19 @@
   button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
   p.note{font-size:12px;color:#888}
   #status{font-size:13px;color:#0f0;margin-top:8px;white-space:pre-wrap}
-  /* ── Custom player ── */
-  #stage{position:relative;margin-top:16px;background:#000;border-radius:12px;overflow:hidden;box-shadow:0 0 24px rgba(0,255,0,.08)}
+  /* ── Overlay dalam frame ── */
+  #stage{position:relative;background:#000;border-radius:12px;overflow:hidden}
+  #stage.hideCursor{cursor:none}
+  #ovTop{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(rgba(0,0,0,.65),transparent);z-index:4;transition:opacity .3s}
+  #ovTop .sp{flex:1}
+  #ovBot{position:absolute;left:0;right:0;bottom:0;padding:8px 12px 10px;background:linear-gradient(transparent,rgba(0,0,0,.75));z-index:4;transition:opacity .3s}
+  #ovBotRow{display:flex;align-items:center;gap:10px}
+  #stage.uiHidden #ovTop,#stage.uiHidden #ovBot{opacity:0;pointer-events:none}
+  #tapL,#tapR{position:absolute;top:15%;bottom:20%;width:32%;z-index:2}
+  #tapL{left:0}#tapR{right:0}
+  #flashL,#flashR{position:absolute;top:38%;font-size:15px;font-weight:bold;color:#fff;background:rgba(0,0,0,.55);padding:8px 14px;border-radius:20px;display:none;z-index:5}
+  #flashL{left:14px}#flashR{right:14px}
+  #cfg{position:absolute;right:10px;top:52px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:6;min-width:200px}
   #v{width:100%;aspect-ratio:16/9;display:block;background:#000}
   #bigplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,.25)}
   #bigplay span{width:84px;height:84px;border-radius:50%;background:rgba(0,255,0,.9);color:#000;font-size:36px;display:flex;align-items:center;justify-content:center;padding-left:6px}
@@ -52,35 +63,37 @@
 <label style="display:none">Proxy<input id="proxy" type="text" value="/proxy?url="></label>
 
 <div id="stage">
-  <video id="v" playsinline crossorigin="anonymous"></video>
-  <div id="title"></div>
-  <div id="bigplay" onclick="togglePlay()"><span>▶</span></div>
-  <div id="bar">
-    <div id="barTop">
-      <span id="qBadge">–</span>
-      <button id="btnCast" onclick="doCast()" title="Cast">⛉</button>
-      <span class="sp"></span>
-      <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
-      <button id="btnDL" onclick="doDownload()" title="Download">⬇</button>
-      <button id="btnCfg" onclick="toggleCfg()" title="Setelan">⚙</button>
-    </div>
-    <div id="cfg">
-      <label>Kualitas</label><select id="q"><option value="-1">Auto</option></select>
-      <label>Subtitle</label><select id="subSel" onchange="pickSub(this.value)"></select>
-      <label>Kecepatan</label>
-      <select id="spd" onchange="v.playbackRate=parseFloat(this.value)">
-        <option value="0.5">0.5x</option><option value="1" selected>1x</option>
-        <option value="1.5">1.5x</option><option value="2">2x</option>
-      </select>
-    </div>
-    <div id="barBot">
-      <button id="btnPlay" onclick="togglePlay()">▶</button>
+  <video id="v" playsinline></video>
+  <div id="tapL"></div><div id="tapR"></div>
+  <div id="ovTop">
+    <span id="qBadge">–</span>
+    <button id="btnCast" onclick="doCast()" title="Cast">⛉</button>
+    <span class="sp"></span>
+    <span id="title" style="font-size:13px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%"></span>
+    <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
+    <button id="btnCfg" onclick="toggleCfg()" title="Setelan">⚙</button>
+  </div>
+  <div id="bigplay"><span>▶</span></div>
+  <div id="flashL">−10 dtk</div><div id="flashR">+10 dtk</div>
+  <div id="ovBot">
+    <div id="ovBotRow">
       <span id="time">0:00 / 0:00</span>
-      <button id="btnMute" onclick="toggleMute()">🔊</button>
-      <input id="vol" type="range" min="0" max="100" value="100">
+      <span class="sp" style="flex:1"></span>
+      <button id="btnDL" onclick="doDownload()" title="Download">⬇</button>
       <button onclick="toggleFS()">⛶</button>
     </div>
     <div id="seekRow"><input id="seek" type="range" min="0" max="1000" value="0"></div>
+  </div>
+  <div id="cfg">
+    <label>Kualitas</label><select id="q"><option value="-1">Auto</option></select>
+    <label>Subtitle</label><select id="subSel" onchange="pickSub(this.value)"></select>
+    <label>Kecepatan</label>
+    <select id="spd" onchange="v.playbackRate=parseFloat(this.value)">
+      <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+      <option value="1.5">1.5x</option><option value="2">2x</option>
+    </select>
+    <label>Volume</label>
+    <input id="vol" type="range" min="0" max="100" value="100">
   </div>
 </div>
 <div id="status">Menunggu URL…</div>
@@ -104,7 +117,50 @@ const fmt = (s) => {
 };
 // ── Kontrol custom ──
 function togglePlay() { v.paused ? v.play().catch(()=>{}) : v.pause(); }
-function toggleMute() { v.muted = !v.muted; $('btnMute').textContent = v.muted ? '🔇' : '🔊'; }
+function setBigIcon() {
+  document.querySelector('#bigplay span').textContent = v.paused ? '▶' : '⏸';
+  $('bigplay').style.display = v.paused ? 'flex' : 'none';
+}
+// ── Overlay auto-hide + tap/double-tap ──
+let hideTimer = null, lastTap = {side:'', t:0};
+function showUI() {
+  $('stage').classList.remove('uiHidden');
+  $('stage').classList.remove('hideCursor');
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    if (!v.paused) { $('stage').classList.add('uiHidden'); $('stage').classList.add('hideCursor'); }
+  }, 3000);
+}
+function tapZone(side) {
+  const now = Date.now();
+  if (lastTap.side === side && now - lastTap.t < 320) {
+    lastTap = {side:'', t:0};
+    v.currentTime = Math.max(0, v.currentTime + (side === 'L' ? -10 : 10));
+    const f = $(side === 'L' ? 'flashL' : 'flashR');
+    f.style.display = 'block';
+    setTimeout(() => f.style.display = 'none', 700);
+    showUI();
+    return;
+  }
+  lastTap = {side, t: now};
+  setTimeout(() => {
+    if (lastTap.side === side && Date.now() - lastTap.t >= 300) {
+      lastTap = {side:'', t:0};
+      if ($('stage').classList.contains('uiHidden')) showUI();
+      else { $('stage').classList.add('uiHidden'); $('stage').classList.add('hideCursor'); }
+    }
+  }, 330);
+}
+$('tapL').addEventListener('click', () => tapZone('L'));
+$('tapR').addEventListener('click', () => tapZone('R'));
+$('bigplay').addEventListener('click', togglePlay);
+v.addEventListener('play', () => { setBigIcon(); showUI(); });
+v.addEventListener('pause', () => {
+  setBigIcon();
+  $('stage').classList.remove('uiHidden'); $('stage').classList.remove('hideCursor');
+  clearTimeout(hideTimer);
+});
+v.addEventListener('seeking', showUI);
 function toggleFS() {
   const stg = $('stage');
   if (document.fullscreenElement) document.exitFullscreen();
@@ -155,8 +211,6 @@ function pickSub(i) {
   [...tr].forEach((t, k) => t.mode = (String(k) === String(i) ? 'showing' : 'hidden'));
   $('btnCC').className = 'on';
 }
-v.addEventListener('play', () => { $('btnPlay').textContent = '⏸'; $('bigplay').style.display = 'none'; });
-v.addEventListener('pause', () => { $('btnPlay').textContent = '▶'; $('bigplay').style.display = 'flex'; });
 v.addEventListener('timeupdate', () => {
   if (v.duration) $('seek').value = Math.round(v.currentTime / v.duration * 1000);
   $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
@@ -166,7 +220,7 @@ $('seek').addEventListener('input', (e) => {
   if (v.duration) v.currentTime = e.target.value / 1000 * v.duration;
 });
 $('vol').addEventListener('input', (e) => {
-  v.volume = e.target.value / 100; v.muted = false; $('btnMute').textContent = '🔊';
+  v.volume = e.target.value / 100; v.muted = false;
 });
 // ── Streaming ──
 const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
