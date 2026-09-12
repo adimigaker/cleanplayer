@@ -1,7 +1,26 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Abyss Player</title><style>body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px}iframe{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;box-shadow:0 0 20px rgba(255,255,255,0.05)}</style></head>
+<html><head><meta charset="utf-8"><title>Clean Player — 2 Player</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:20px;max-width:960px;margin:auto}h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}button{padding:10px 24px;font-size:16px;cursor:pointer}section{margin-top:30px;border-top:2px solid #444;padding-top:20px}iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:8px;background:#222}</style></head>
 <body>
-<h2>Clean Player — Abyss Embed (tanpa iklan)</h2>
-<p>Render khusus untuk embed Abyss Player:</p>
-<iframe src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe>
+<h2>Clean Player — Uji 2 Player</h2>
+<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Paste embed URL">
+<button onclick="load()">Render</button>
+
+<section>
+<h3>1. Player Default (iframe seperti piratestudio21)</h3>
+<iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe>
+</section>
+
+<section>
+<h3>2. Custom Player (iframe bersih / video tag)</h3>
+<iframe id="cus" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;"></iframe>
+<p style="font-size:12px;color:#aaa">Custom: tampilan bersih, embed Abyss langsung.</p>
+</section>
+
+<script>
+function load() {
+  const u = document.getElementById('url').value.trim();
+  document.getElementById('def').src = u;
+  document.getElementById('cus').src = u;
+}
+</script>
 </body></html>
