@@ -1,19 +1,32 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Player</title><style>body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}section{margin-top:30px;border-top:2px solid #333;padding-top:20px}iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}p.note{font-size:12px;color:#aaa}</style></head>
+<html><head><meta charset="utf-8"><title>Clean Player — Stellar HLS</title><style>
+body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
+h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}
+button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}
+section{margin-top:30px;border-top:2px solid #333;padding-top:20px}
+video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}
+p.note{font-size:12px;color:#aaa}
+</style></head>
 <body>
-<h2>Clean Player — Uji 2 Player (Semua dari Server Abyss, Tanpa File Lokal)</h2>
-<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Abyss embed URL (hanya stream, tidak ada file lokal)">
-<button onclick="load()">Render</button>
+<h2>Clean Player — Stream dari stellarpathmedia.sbs (HLS manifest)</h2>
+<input id="url" value="https://spz.stellarpathmedia.sbs/v4/3ae/plq5e/index-f2-v1-a1.txt?k=4G94BPohsLfp0e6sXMRh9w&kx=1789206809" placeholder="Manifest HLS URL (txt)">
+<button onclick="load()">Render Custom</button>
 
-<section><h3>1. Player Default (iframe — bisa terserang iklan embed Abyss)</h3><iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe></section>
+<section><h3>Custom Video (langsung ke manifest HLS — bersih, tidak ada iframe Abyss)</h3>
+<video id="cus" controls crossorigin="anonymous"></video>
+<p class="note">Custom: memuat manifest HLS dari stellarpathmedia.sbs (dalam .txt, segment .woff2). Tidak pakai iframe Abyss = tidak ada kontrol/iklan dari Abyss.</p>
+</section>
 
-<section><h3>2. Custom Player (iframe bersih — hanya stream Abyss, tidak ada file lokal .mp4)</h3><iframe id="cus" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;filter:contrast(1.05);"></iframe><p class="note">Custom: sama-sama stream dari server Abyss. Tidak ada file .mp4 lokal. Iklan dari Abyss tetap bergantung pada embed mereka.</p></section>
+<section><h3>Default (iframe Abyss — untuk perbandingan)</h3><iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="width:100%;aspect-ratio:16/9;border:none;border-radius:8px;"></iframe></section>
 
 <script>
 function load() {
   const u = document.getElementById('url').value.trim();
-  document.getElementById('def').src = u;
-  document.getElementById('cus').src = u;
+  const v = document.getElementById('cus');
+  // HLS manifest bisa diputar langsung oleh browser jika server mengirim MIME tepat
+  v.src = u;
+  v.load();
+  document.getElementById('def').src = 'https://player.abyssplayer.com/Ny6cNEtDci';
 }
 load();
 </script>
