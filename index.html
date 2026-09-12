@@ -289,7 +289,12 @@ function rewriteSegments(varTxt, varUrl, proxy) {
     return line;
   }).join('\n');
 }
+let subLoading = false, subDoneFor = '';
 async function loadSubtitles(meta, proxy) {
+  const tag = (meta && meta.cfNative) || '';
+  if (subLoading || subDoneFor === tag) return 0;
+  subLoading = true;
+  try {
   // bersihkan track lama
   [...v.querySelectorAll('track')].forEach(t => t.remove());
   subTracks = [];
@@ -302,16 +307,19 @@ async function loadSubtitles(meta, proxy) {
     const subUrl = 'https://ps21.seeks.cloud' + String(subs[name]).split('#')[0];
     // kumpulkan kandidat proxy yg lolos validasi, track coba berurutan bila error
     const good = [];
+    let goodTxt = '';
     for (const px0 of cands) {
       try {
         const px = px0.startsWith('http') ? px0 : location.origin + px0;
         const durl = px + encodeURIComponent(subUrl);
         const txt = await (await fetch(durl)).text();
-        if (txt.length > 100 && txt.trim().startsWith('WEBVTT')) good.push(durl);
+        if (txt.length > 100 && txt.trim().startsWith('WEBVTT')) { good.push(durl); if (!goodTxt) goodTxt = txt; }
       } catch(e) {}
       if (good.length >= 2) break;
     }
     if (!good.length) continue;
+    // Isi sudah tervalidasi -> blob agar <track> tak fetch ulang (anti gagal-load)
+    const blobUrl = URL.createObjectURL(new Blob([goodTxt], {type:'text/vtt'}));
     const t = document.createElement('track');
     t.kind = 'subtitles'; t.label = name; t.srclang = 'id';
     if (okCount === 0) t.default = true;
@@ -323,7 +331,7 @@ async function loadSubtitles(meta, proxy) {
       } catch(e) {}
     });
     v.appendChild(t); // append DULU baru isi src (quirk Chrome)
-    t.src = good[0];
+    t.src = blobUrl;
           const o = document.createElement('option');
           o.value = String(okCount); o.textContent = name;
           $('subSel').appendChild(o);
@@ -341,32 +349,30 @@ async function loadSubtitles(meta, proxy) {
   } else if (names.length) {
     st('Tidak ada subtitle yg berhasil dimuat (cek proxy).');
   }
+  subDoneFor = tag;
   return okCount;
+  } finally { subLoading = false; }
 }
 let curLevels = [], curProxy = '', curMeta = null;
 async function playVariant(i, resume) {
   const lv = curLevels[i];
   if (!lv) return;
-  st('Memuat ' + lv.h + 'p...');
+  st('Memuat ' + lv.h + 'p... (ambil varian)');
   const txt = await fetchText(lv.url);
+  st('Memuat ' + lv.h + 'p... (varian OK ' + txt.length + 'b)');
   const blobUrl = URL.createObjectURL(new Blob(
     [rewriteSegments(txt, lv.url, curProxy)], {type:'application/vnd.apple.mpegurl'}));
   if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
   $('qBadge').textContent = lv.h + 'P';
   if (window.Hls && Hls.isSupported()) {
-    hls = new Hls({
-      maxBufferLength: 30,
-      fragLoadingMaxRetry: 6,
-      manifestLoadingMaxRetry: 4,
-      levelLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 1500,
-      manifestLoadingRetryDelay: 1500,
-      levelLoadingRetryDelay: 1500,
-    });
+    st('Memuat ' + lv.h + 'p... (buat player)');
+    hls = new Hls();
+    st('Memuat ' + lv.h + 'p... (load+attach)');
     hls.loadSource(blobUrl);
     hls.attachMedia(v);
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       starting = false;
+      st('OK — ' + (curMeta && curMeta.title ? curMeta.title + ' — ' : '') + $('qBadge').textContent);
       if (resume > 1) { try { v.currentTime = resume; } catch(e){} }
       v.play().catch(() => {});
     });
@@ -400,9 +406,29 @@ async function playMaster(masterUrl, proxy, meta) {
   st('OK — ' + (title ? title + ' — ' : '') + curLevels.map(l => l.h + 'p').join(', '));
   await playVariant(0, 0);
 }
+async function mseOk() {
+  try {
+    const ms = new MediaSource();
+    const vv = document.createElement('video');
+    document.body.appendChild(vv);
+    const opened = await new Promise((res) => {
+      const to = setTimeout(() => res(false), 2500);
+      ms.addEventListener('sourceopen', () => { clearTimeout(to); res(true); }, { once: true });
+      vv.src = URL.createObjectURL(ms);
+    });
+    vv.remove();
+    return opened === true;
+  } catch(e) { return false; }
+}
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
+  subDoneFor = '';
+  if (!(await mseOk())) {
+    starting = false;
+    st('Browser sesi ini tak bisa memutar video (MSE macet) — muat ulang halaman lalu coba lagi.');
+    return;
+  }
   let proxy = $('proxy').value.trim();
   try {
     try {
