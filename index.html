@@ -21,7 +21,19 @@
   #bigplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,.25)}
   #bigplay span{width:84px;height:84px;border-radius:50%;background:rgba(0,255,0,.9);color:#000;font-size:36px;display:flex;align-items:center;justify-content:center;padding-left:6px}
   #title{position:absolute;top:0;left:0;right:0;padding:10px 14px;font-size:15px;font-weight:bold;background:linear-gradient(rgba(0,0,0,.7),transparent);pointer-events:none}
-  #bar{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(10,10,18,.92)}
+  #bar{padding:8px 10px;background:rgba(10,10,18,.92)}
+  #barTop{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  #barTop .sp{flex:1}
+  #barBot{display:flex;align-items:center;gap:8px}
+  #qBadge{font-size:15px;font-weight:bold;color:#fff}
+  #seek{flex:1;accent-color:#0f0;margin:0}
+  #seekRow{display:flex;margin-top:2px}
+  #time{font-size:12px;color:#ddd;white-space:nowrap}
+  #vol{width:70px;accent-color:#0f0}
+  #bar select{padding:6px;font-size:13px}
+  #cfg{position:absolute;right:10px;bottom:64px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:5;min-width:200px}
+  #cfg label{display:block;margin-top:6px}
+  #cfg select{width:100%;margin:2px 0 6px}
   #bar button{background:#222;color:#0f0;border:1px solid #0f0;padding:6px 12px;font-size:14px;border-radius:6px}
   #bar button.on{background:#0f0;color:#000}
   #seek{flex:1;accent-color:#0f0}
@@ -44,15 +56,31 @@
   <div id="title"></div>
   <div id="bigplay" onclick="togglePlay()"><span>▶</span></div>
   <div id="bar">
-    <button id="btnPlay" onclick="togglePlay()">▶</button>
-    <span id="time">0:00 / 0:00</span>
-    <input id="seek" type="range" min="0" max="1000" value="0">
-    <button id="btnMute" onclick="toggleMute()">🔊</button>
-    <input id="vol" type="range" min="0" max="100" value="100">
-    <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
-    <select id="subSel" onchange="pickSub(this.value)" style="max-width:130px"></select>
-    <select id="q"><option value="-1">Auto</option></select>
-    <button onclick="toggleFS()">⛶</button>
+    <div id="barTop">
+      <span id="qBadge">–</span>
+      <button id="btnCast" onclick="doCast()" title="Cast">⛉</button>
+      <span class="sp"></span>
+      <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
+      <button id="btnDL" onclick="doDownload()" title="Download">⬇</button>
+      <button id="btnCfg" onclick="toggleCfg()" title="Setelan">⚙</button>
+    </div>
+    <div id="cfg">
+      <label>Kualitas</label><select id="q"><option value="-1">Auto</option></select>
+      <label>Subtitle</label><select id="subSel" onchange="pickSub(this.value)"></select>
+      <label>Kecepatan</label>
+      <select id="spd" onchange="v.playbackRate=parseFloat(this.value)">
+        <option value="0.5">0.5x</option><option value="1" selected>1x</option>
+        <option value="1.5">1.5x</option><option value="2">2x</option>
+      </select>
+    </div>
+    <div id="barBot">
+      <button id="btnPlay" onclick="togglePlay()">▶</button>
+      <span id="time">0:00 / 0:00</span>
+      <button id="btnMute" onclick="toggleMute()">🔊</button>
+      <input id="vol" type="range" min="0" max="100" value="100">
+      <button onclick="toggleFS()">⛶</button>
+    </div>
+    <div id="seekRow"><input id="seek" type="range" min="0" max="1000" value="0"></div>
   </div>
 </div>
 <div id="status">Menunggu URL…</div>
@@ -90,6 +118,37 @@ function toggleCC() {
   for (const t of tr) t.mode = next;
   $('btnCC').className = anyOn ? '' : 'on';
   st(anyOn ? 'Subtitle mati.' : 'Subtitle menyala.');
+}
+function toggleCfg() {
+  const c = $('cfg');
+  c.style.display = c.style.display === 'block' ? 'none' : 'block';
+}
+async function doCast() {
+  try {
+    if (v.remote && v.remote.prompt) { await v.remote.prompt(); return; }
+  } catch(e) {}
+  st('Cast tak tersedia di browser ini.');
+}
+let lastMeta = null, lastProxy = '';
+async function doDownload() {
+  if (!lastMeta) { st('Putar video dulu sebelum download.'); return; }
+  st('Menyiapkan link download...');
+  try {
+    const id = hashId($('embed').value);
+    const r = await fetch('https://ps21.seeks.cloud/api/v1/download?id=' + encodeURIComponent(id) + '&w=800&h=600&r=');
+    const hex = (await r.text()).trim();
+    const data = new Uint8Array(hex.match(/[\da-f]{2}/gi).map(x => parseInt(x, 16)));
+    const key = await crypto.subtle.importKey('raw', te.encode(KEY), {name:'AES-CBC'}, false, ['decrypt']);
+    const pt = await crypto.subtle.decrypt({name:'AES-CBC', iv: te.encode(IV)}, key, data);
+    const j = JSON.parse(td.decode(pt));
+    if (!j.mp4) { st('Video ini tak ada file download.'); return; }
+    const px = lastProxy.startsWith('http') ? lastProxy : location.origin + lastProxy;
+    const a = document.createElement('a');
+    a.href = px + encodeURIComponent(j.mp4);
+    a.download = (j.title || 'video') + '.mp4';
+    document.body.appendChild(a); a.click(); a.remove();
+    st('Download dimulai: ' + (j.title || 'video'));
+  } catch(e) { st('Download gagal: ' + e.message); }
 }
 function pickSub(i) {
   const tr = v.textTracks;
@@ -194,6 +253,8 @@ async function playMaster(masterUrl, proxy, meta) {
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
       starting = false;
       loadSubtitles(meta, proxy); // setelah media attach agar track tak ter-reset
+      const tag = (h) => h ? h + 'P' : '';
+      $('qBadge').textContent = tag(data.levels[0] && data.levels[0].height);
       st('OK — ' + (title ? title + ' — ' : '') + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
       $('title').textContent = title || '';
       document.title = '▶ ' + (title || 'Clean Player');
@@ -204,6 +265,10 @@ async function playMaster(masterUrl, proxy, meta) {
         q.appendChild(o);
       });
       v.play().catch(() => {});
+    });
+    hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
+      const lv = hls.levels[data.level];
+      if (lv && lv.height) $('qBadge').textContent = lv.height + 'P';
     });
     hls.on(Hls.Events.ERROR, (e, data) => {
       if (data.type === 'networkError' && !data.fatal) {
@@ -236,6 +301,7 @@ async function start() {
     const master = meta.cfNative || meta.source;
     if (!master) { st('Tidak ada stream untuk ID ini.'); return; }
     st('Token OK — memuat playlist...');
+    lastMeta = meta; lastProxy = proxy;
     await playMaster(master, proxy, meta);
   } catch(e) { starting = false; st('Gagal: ' + e.message); }
 }
