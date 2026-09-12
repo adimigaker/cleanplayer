@@ -1,27 +1,32 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Player — 2 Player</title><style>
-body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
-h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}
-button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}
-section{margin-top:30px;border-top:2px solid #333;padding-top:20px}
- iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}
-p.note{font-size:12px;color:#aaa}
-</style></head>
+<html><head><meta charset="utf-8"><title>Custom Player — Multi Resolution</title><style>body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}h2{color:#fff}select,input{padding:10px;font-size:15px;width:100%;margin-bottom:12px;background:#222;color:#eee;border:1px solid #444;border-radius:6px}button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer}video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}p.note{font-size:12px;color:#aaa}</style></head>
 <body>
-<h2>Clean Player — 2 Player (Sumber Sama, Tampilan Beda)</h2>
-<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Abyss URL atau Seeks URL">
-<button onclick="load()">Render</button>
+<h2>Custom Player — Multi Size (Sumber dari kuramanime / seeks)</h2>
+<p>Input URL sumber (misal .mp4 dari anisphia / seeks), pilih resolusi:</p>
+<input id="srcUrl" placeholder="URL video (.mp4) atau halaman embed" value="https://anisphia.my.id/kdrive/L76Z3oHcJg2Oq/Kuramanime-OMOMARN_MOV_BD-1080p.mp4?lud=1789100254&pid=53933&sid=279312&cce=" />
+<select id="res"><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option></select>
+<button onclick="loadRes()">Render</button>
 
-<section><h3>P1 — Default Iframe (tanpa custom)</h3><iframe id="p1" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe><p class="note">Default: embed asli Abyss/Seeks.</p></section>
-
-<section><h3>P2 — Custom Player (streaming sumber sama, wrapper bersih sendiri)</h3><iframe id="p2" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;"></iframe><p class="note">Custom: sumber sama (<code>player.abyssplayer.com/Ny6cNEtDci</code>), tapi wrapper/penampilan kita sendiri (tanpa tambahan, hanya iframe bersih).</p></section>
+<video id="v" controls poster="" crossorigin="anonymous"></video>
+<p class="note">Custom multi-size: pilih resolusi, video langsung dari sumber (tidak pakai iframe Abyss).</p>
 
 <script>
-function load() {
-  const u = document.getElementById('url').value.trim();
-  document.getElementById('p1').src = u;
-  document.getElementById('p2').src = u;
+function loadRes() {
+  const base = document.getElementById('srcUrl').value.trim();
+  const res = document.getElementById('res').value;
+  // Contoh: jika URL sudah lengkap, pakai langsung; jika hanya dasar, tambahkan resolusi
+  let url = base;
+  // Demo mapping kuramanime (anisphia) — bisa diganti dengan mapping seeks/cloud
+  const mappings = {
+    '1080': 'https://anisphia.my.id/kdrive/L76Z3oHcJg2Oq/Kuramanime-OMOMARN_MOV_BD-1080p.mp4?lud=1789100254&pid=53933&sid=279312&cce=',
+    '720': 'https://anisphia.my.id/kdrive/7tUdzoN52eD/Kuramanime-OMOMARN_MOV_BD-720p.mp4?lud=1789100252&pid=53933&sid=279311&cce=',
+    '480': 'https://anisphia.my.id/kdrive/KqZ1hqBw1ecx8qJ/Kuramanime-OMOMARN_MOV_BD-480p.mp4?lud=1789100251&pid=53933&sid=279310&cce=',
+    '360': 'https://anisphia.my.id/kdrive/WECgIUUAggrK82/Kuramanime-OMOMARN_MOV_BD-360p.mp4?lud=1789100249&pid=53933&sid=279309&cce=1'
+  };
+  if (mappings[res]) url = mappings[res];
+  document.getElementById('v').src = url;
+  document.getElementById('v').load();
 }
-load();
+loadRes();
 </script>
 </body></html>
