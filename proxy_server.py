@@ -1,5 +1,7 @@
 import json
 import re
+import shutil
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urljoin, quote
@@ -61,28 +63,48 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             try:
-                req = urllib.request.Request(target, headers={
+                hdrs = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                     'Referer': UPSTREAM_REFERER,
                     'Accept': '*/*',
-                })
-                resp = urllib.request.urlopen(req, timeout=25)
-                body = resp.read()
+                }
+                # Teruskan Range (wajib untuk file besar/download parsial)
+                rng = self.headers.get('Range')
+                if rng:
+                    hdrs['Range'] = rng
+                req = urllib.request.Request(target, headers=hdrs)
+                try:
+                    resp = urllib.request.urlopen(req, timeout=25)
+                    status = resp.status
+                except urllib.error.HTTPError as he:
+                    resp = he
+                    status = he.code
                 ctype = resp.headers.get_content_type()
                 # Rewrite .m3u8 di SINI (varian/segmen absolut -> /proxy?url= relatif).
                 # Client (index.html) idempoten: baris yg sudah proxy hanya diabsolutkan.
                 if 'm3u8' in target or target.endswith('.txt') or 'mpegurl' in ctype:
+                    body = resp.read()
                     try:
                         body = rewrite_playlist(body.decode('utf-8', errors='ignore'), target).encode()
                         ctype = 'application/vnd.apple.mpegurl'
                     except Exception:
                         pass
-                self.send_response(200)
-                self.send_header('Content-Type', ctype)
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                    self.send_response(status)
+                    self.send_header('Content-Type', ctype)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    # File besar (mp4/segmen/vtt): STREAMING langsung, tanpa buffer
+                    self.send_response(status)
+                    for h in ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'):
+                        hv = resp.headers.get(h)
+                        if hv:
+                            self.send_header(h, hv)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    shutil.copyfileobj(resp, self.wfile, length=65536)
             except Exception as e:
                 self.send_response(502)
                 self.end_headers()

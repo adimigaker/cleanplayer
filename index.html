@@ -215,11 +215,31 @@ function toggleCfg() {
   const c = $('cfg');
   c.style.display = c.style.display === 'block' ? 'none' : 'block';
 }
+function castUrl() {
+  if (!curLevels.length) return '';
+  const qi = $('q') ? parseInt($('q').value || '0', 10) : 0;
+  const lv = curLevels[qi] || curLevels[0];
+  const px = (lastProxy && lastProxy.startsWith('http')) ? lastProxy : location.origin + (lastProxy || '/proxy?url=');
+  return px + encodeURIComponent(lv.url);
+}
 async function doCast() {
+  // 1) Remote Playback API (Chromecast/TV bawaan browser)
   try {
     if (v.remote && v.remote.prompt) { await v.remote.prompt(); return; }
   } catch(e) {}
-  st('Cast tak tersedia di browser ini.');
+  // 2) Android: lempar stream ke VLC (fallback: buka link biasa)
+  const stream = castUrl();
+  if (!stream) { st('Putar video dulu sebelum cast.'); return; }
+  if (/Android/i.test(navigator.userAgent)) {
+    location.href = 'intent://' + stream.replace(/^https?:\/\//, '') +
+      '#Intent;scheme=https;type=video/*;package=org.videolan.vlc;S.browser_fallback_url=' +
+      encodeURIComponent(stream) + ';end';
+    st('Membuka VLC... (tidak ada? link juga disiapkan di tab baru)');
+    return;
+  }
+  // 3) Desktop/lainnya: salin link streaming (tempel di VLC/MX/TV)
+  try { await navigator.clipboard.writeText(stream); st('Link streaming disalin — tempel di VLC / MX Player / TV.'); }
+  catch(e) { prompt('Salin link streaming:', stream); }
 }
 let lastMeta = null, lastProxy = '';
 async function doDownload() {
@@ -234,12 +254,21 @@ async function doDownload() {
     const pt = await crypto.subtle.decrypt({name:'AES-CBC', iv: te.encode(IV)}, key, data);
     const j = JSON.parse(td.decode(pt));
     if (!j.mp4) { st('Video ini tak ada file download.'); return; }
-    const px = lastProxy.startsWith('http') ? lastProxy : location.origin + lastProxy;
-    const a = document.createElement('a');
-    a.href = px + encodeURIComponent(j.mp4);
-    a.download = (j.title || 'video') + '.mp4';
-    document.body.appendChild(a); a.click(); a.remove();
-    st('Download dimulai: ' + (j.title || 'video'));
+    // Atribut download diabaikan lintas-origin (halaman pindah!) -> buka tab baru agar player aman
+    const pxs = [lastProxy, ...FALLBACKS.filter(p => p !== lastProxy)];
+    for (const px0 of pxs) {
+      try {
+        const px = px0.startsWith('http') ? px0 : location.origin + px0;
+        const url = px + encodeURIComponent(j.mp4);
+        const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+        if (probe.ok || probe.status === 206 || probe.status === 416) {
+          window.open(url, '_blank');
+          st('Download dibuka di tab baru: ' + (j.title || 'video'));
+          return;
+        }
+      } catch(e) {}
+    }
+    st('Download gagal: semua jalur proxy macet.');
   } catch(e) { st('Download gagal: ' + e.message); }
 }
 function pickSub(i) {
