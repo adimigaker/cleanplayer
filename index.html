@@ -124,7 +124,12 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
   } else st('Browser tidak mendukung HLS.');
 }
 async function start() {
-  const proxy = document.getElementById('proxy').value.trim();
+  let proxy = document.getElementById('proxy').value.trim();
+  try {
+    // Proxy otomatis dari repo (ditulis oleh tunnel di server) — nol konfigurasi.
+    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    if (auto.startsWith('http')) proxy = auto;
+  } catch(e) {}
   try {
     const id = hashId(document.getElementById('embed').value);
     if (!id) { st('Isi URL embed dulu.'); return; }
