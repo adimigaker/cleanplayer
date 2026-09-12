@@ -93,6 +93,7 @@ class H(BaseHTTPRequestHandler):
                     self.send_response(status)
                     self.send_header('Content-Type', ctype)
                     self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges')
                     self.send_header('Content-Length', str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
@@ -104,6 +105,7 @@ class H(BaseHTTPRequestHandler):
                         if hv:
                             self.send_header(h, hv)
                     self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges')
                     self.end_headers()
                     shutil.copyfileobj(resp, self.wfile, length=65536)
             except Exception as e:
