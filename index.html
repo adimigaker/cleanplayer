@@ -23,8 +23,8 @@
 
 <label>URL embed seeks</label>
 <input id="embed" value="" placeholder="https://ps21.seeks.cloud/#plq5e">
-<label>Proxy base (dev lokal: /proxy?url= — prod: URL worker, lihat worker.js)</label>
-<input id="proxy" value="/proxy?url=">
+<label>Proxy base (otomatis coba cadangan bila gagal; worker sendiri paling stabil — lihat worker.js)</label>
+<input id="proxy" value="https://api.allorigins.win/raw?url=">
 <div class="row">
   <div><label>Kualitas</label><select id="q"><option value="-1">Auto</option></select></div>
   <div><label>&nbsp;</label><button onclick="start()" style="width:100%">Putar</button></div>
@@ -54,34 +54,51 @@ async function fetchVideoMeta(id) {
   const pt = await crypto.subtle.decrypt({name:'AES-CBC', iv: te.encode(IV)}, key, data);
   return JSON.parse(td.decode(pt));
 }
+const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
 async function fetchRewritten(url, proxy) {
   // Idempoten: baris yg sudah '/proxy?url=' hanya diabsolutkan.
-  const px = proxy.startsWith('http') ? proxy : location.origin + proxy;
-  const absProxy = (s) => {
-    if (s.includes('proxy?url=')) return s.startsWith('http') ? s : location.origin + s;
-    return px + encodeURIComponent(new URL(s, url).href);
-  };
-  const txt = await (await fetch(px + encodeURIComponent(url))).text();
-  return txt.split('\n').map(line => {
-    const s = line.trim();
-    const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
-    if (m) {
-      const inner = m[2].includes('proxy?url=') ? m[2] : new URL(m[2], url).href;
-      return m[1] + absProxy(inner) + m[3];
-    }
-    if (s && !s.startsWith('#')) return absProxy(s.startsWith('http') || s.includes('proxy?url=') ? s : new URL(s, url).href);
-    return line;
-  }).join('\n');
+  // Coba proxy utama lalu cadangan; validasi isi harus playlist.
+  const cands = [proxy, ...FALLBACKS.filter(p => p !== proxy)];
+  let lastErr = null;
+  for (const px0 of cands) {
+    const px = px0.startsWith('http') ? px0 : location.origin + px0;
+    try {
+      const txt = await (await fetch(px + encodeURIComponent(url))).text();
+      if (!txt.trim().startsWith('#EXTM3U')) { lastErr = 'bukan playlist via ' + px0; continue; }
+      const absProxy = (s) => {
+        if (s.includes('proxy?url=') || s.includes('allorigins') || s.includes('corsproxy')) return s.startsWith('http') ? s : location.origin + s;
+        return px + encodeURIComponent(new URL(s, url).href);
+      };
+      return txt.split('\n').map(line => {
+        const s = line.trim();
+        const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
+        if (m) {
+          const inner = /proxy\?url=|allorigins|corsproxy/.test(m[2]) ? m[2] : new URL(m[2], url).href;
+          return m[1] + absProxy(inner) + m[3];
+        }
+        if (s && !s.startsWith('#')) return absProxy(/^(http|proxy\?url=)/.test(s) ? s : new URL(s, url).href);
+        return line;
+      }).join('\n');
+    } catch(e) { lastErr = e.message; }
+  }
+  throw new Error('Semua proxy gagal (' + lastErr + '). Deploy worker.js sendiri.');
 }
 async function playMaster(masterUrl, proxy, subUrl, title) {
   const v = document.getElementById('v');
   if (hls) { hls.destroy(); hls = null; }
   document.getElementById('q').innerHTML = '<option value="-1">Auto</option>';
   if (subUrl) {
-    try {
-      const blob = await (await fetch(proxy + encodeURIComponent(subUrl))).blob();
-      document.getElementById('trk').src = URL.createObjectURL(blob);
-    } catch(e) {}
+    const subs = [proxy, ...FALLBACKS.filter(p => p !== proxy)];
+    for (const px0 of subs) {
+      try {
+        const px = px0.startsWith('http') ? px0 : location.origin + px0;
+        const blob = await (await fetch(px + encodeURIComponent(subUrl))).blob();
+        if (blob.size > 100) {
+          document.getElementById('trk').src = URL.createObjectURL(blob);
+          break;
+        }
+      } catch(e) {}
+    }
   }
   const finalUrl = URL.createObjectURL(new Blob(
     [await fetchRewritten(masterUrl, proxy)], {type:'application/vnd.apple.mpegurl'}));
