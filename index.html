@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 <title>Clean Player</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
 <style>
@@ -12,9 +13,9 @@
   h2{color:#fff}label{font-size:13px;color:#aaa}
   input[type=text]{width:100%;padding:10px;font-size:14px;margin:4px 0 12px;background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px}
   select{background:#1a1a24;color:#eee;border:1px solid #444;border-radius:6px;padding:8px;font-size:14px}
-  button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
+  button{padding:10px 24px;font-size:16px;background:#00a4dc;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
   p.note{font-size:12px;color:#888}
-  #status{font-size:13px;color:#0f0;margin-top:8px;white-space:pre-wrap}
+  #status{font-size:13px;color:#00a4dc;margin-top:8px;white-space:pre-wrap}
   /* ── Overlay dalam frame ── */
   #stage{position:relative;background:#000;border-radius:12px;overflow:hidden}
   #stage.hideCursor{cursor:none}
@@ -23,8 +24,6 @@
   #ovBot{position:absolute;left:0;right:0;bottom:0;padding:8px 12px 10px;background:linear-gradient(transparent,rgba(0,0,0,.75));z-index:4;transition:opacity .3s}
   #ovBotRow{display:flex;align-items:center;gap:10px}
   #stage.uiHidden #ovTop,#stage.uiHidden #ovBot{opacity:0;pointer-events:none}
-  #tapL,#tapR{position:absolute;top:15%;bottom:20%;width:32%;z-index:2}
-  #tapL{left:0}#tapR{right:0}
   #flashL,#flashR{position:absolute;top:38%;font-size:15px;font-weight:bold;color:#fff;background:rgba(0,0,0,.55);padding:8px 14px;border-radius:20px;display:none;z-index:5}
   #flashL{left:14px}#flashR{right:14px}
   #cfg{position:absolute;right:10px;top:52px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:6;min-width:200px}
@@ -45,11 +44,22 @@
   #cfg{position:absolute;right:10px;bottom:64px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:5;min-width:200px}
   #cfg label{display:block;margin-top:6px}
   #cfg select{width:100%;margin:2px 0 6px}
-  #bar button{background:#222;color:#0f0;border:1px solid #0f0;padding:6px 12px;font-size:14px;border-radius:6px}
-  #bar button.on{background:#0f0;color:#000}
-  #seek{flex:1;accent-color:#0f0}
-  #time{font-size:12px;color:#aaa;white-space:nowrap}
-  #vol{width:80px;accent-color:#0f0}
+  /* ── Gaya Jellyfin: ikon Material putih transparan, aksen biru ── */
+  .material-icons{font-feature-settings:'liga'}
+  #stage button{background:transparent;border:0;color:#fff;cursor:pointer;border-radius:50%;padding:8px;font-size:15px;line-height:1}
+  #stage button .material-icons{font-size:30px}
+  #stage button.on{color:#00a4dc}
+  #bar button{background:transparent;border:0;color:#fff;padding:6px 10px;font-size:14px;border-radius:50%}
+  #bar button.on{color:#00a4dc}
+  #bigplay span{width:76px;height:76px;border-radius:50%;background:rgba(20,20,20,.55);color:#fff;font-size:44px;display:flex;align-items:center;justify-content:center}
+  #bigplay span.material-icons{font-size:44px}
+  #seek{accent-color:#00a4dc}
+  #vol{accent-color:#00a4dc}
+  #qBadge{color:#fff;font-weight:normal}
+  #time{color:#eee}
+  #seek{flex:1;margin:0}
+  #time{font-size:12px;white-space:nowrap}
+  #vol{width:70px}
   #bar select{padding:6px;font-size:13px}
 </style>
 </head>
@@ -64,23 +74,22 @@
 
 <div id="stage">
   <video id="v" playsinline></video>
-  <div id="tapL"></div><div id="tapR"></div>
   <div id="ovTop">
     <span id="qBadge">–</span>
-    <button id="btnCast" onclick="doCast()" title="Cast">⛉</button>
+    <button id="btnCast" onclick="doCast()" title="Cast"><span class="material-icons">cast</span></button>
     <span class="sp"></span>
     <span id="title" style="font-size:13px;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%"></span>
-    <button id="btnCC" onclick="toggleCC()" title="Subtitle">CC</button>
-    <button id="btnCfg" onclick="toggleCfg()" title="Setelan">⚙</button>
+    <button id="btnCC" onclick="toggleCC()" title="Subtitle"><span class="material-icons">closed_caption</span></button>
+    <button id="btnCfg" onclick="toggleCfg()" title="Setelan"><span class="material-icons">settings</span></button>
   </div>
-  <div id="bigplay"><span>▶</span></div>
+  <div id="bigplay"><span class="material-icons">play_arrow</span></div>
   <div id="flashL">−10 dtk</div><div id="flashR">+10 dtk</div>
   <div id="ovBot">
     <div id="ovBotRow">
       <span id="time">0:00 / 0:00</span>
       <span class="sp" style="flex:1"></span>
-      <button id="btnDL" onclick="doDownload()" title="Download">⬇</button>
-      <button onclick="toggleFS()">⛶</button>
+      <button id="btnDL" onclick="doDownload()" title="Download"><span class="material-icons">file_download</span></button>
+      <button onclick="toggleFS()" title="Fullscreen"><span class="material-icons">fullscreen</span></button>
     </div>
     <div id="seekRow"><input id="seek" type="range" min="0" max="1000" value="0"></div>
   </div>
@@ -118,7 +127,7 @@ const fmt = (s) => {
 // ── Kontrol custom ──
 function togglePlay() { v.paused ? v.play().catch(()=>{}) : v.pause(); }
 function setBigIcon() {
-  document.querySelector('#bigplay span').textContent = v.paused ? '▶' : '⏸';
+  document.querySelector('#bigplay span').textContent = v.paused ? 'play_arrow' : 'pause';
   $('bigplay').style.display = v.paused ? 'flex' : 'none';
 }
 // ── Overlay auto-hide + tap/double-tap ──
@@ -131,14 +140,22 @@ function showUI() {
     if (!v.paused) { $('stage').classList.add('uiHidden'); $('stage').classList.add('hideCursor'); }
   }, 3000);
 }
+function tapAt(clientX) {
+  const r = $('stage').getBoundingClientRect();
+  const x = (clientX - r.left) / r.width;
+  tapZone(x < 0.32 ? 'L' : x > 0.68 ? 'R' : 'C');
+}
 function tapZone(side) {
   const now = Date.now();
   if (lastTap.side === side && now - lastTap.t < 320) {
     lastTap = {side:'', t:0};
-    v.currentTime = Math.max(0, v.currentTime + (side === 'L' ? -10 : 10));
-    const f = $(side === 'L' ? 'flashL' : 'flashR');
-    f.style.display = 'block';
-    setTimeout(() => f.style.display = 'none', 700);
+    if (side === 'C') { togglePlay(); }
+    else {
+      v.currentTime = Math.max(0, v.currentTime + (side === 'L' ? -10 : 10));
+      const f = $(side === 'L' ? 'flashL' : 'flashR');
+      f.style.display = 'block';
+      setTimeout(() => f.style.display = 'none', 700);
+    }
     showUI();
     return;
   }
@@ -151,9 +168,11 @@ function tapZone(side) {
     }
   }, 330);
 }
-$('tapL').addEventListener('click', () => tapZone('L'));
-$('tapR').addEventListener('click', () => tapZone('R'));
-$('bigplay').addEventListener('click', togglePlay);
+$('stage').addEventListener('click', (e) => {
+  if (e.target.closest('button,select,input,#cfg')) return;
+  tapAt(e.clientX);
+});
+$('bigplay').addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
 v.addEventListener('play', () => { setBigIcon(); showUI(); });
 v.addEventListener('pause', () => {
   setBigIcon();
