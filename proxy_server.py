@@ -47,6 +47,12 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_GET(self):
+        try:
+            self._route()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _route(self):
         parsed = urlparse(self.path)
         if parsed.path == '/proxy':
             target = parse_qs(parsed.query).get('url', [None])[0]
