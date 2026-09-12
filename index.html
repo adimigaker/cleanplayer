@@ -1,55 +1,20 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Player — Full</title><style>
-body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}
-h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}
-button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}
-section{margin-top:30px;border-top:2px solid #333;padding-top:20px}
-iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}
-.ad-block{display:none!important}
-#overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:9999;display:none;align-items:center;justify-content:center;color:#fff;font-size:20px}
-</style></head>
+<html><head><meta charset="utf-8"><title>Clean Player</title><style>body{font-family:sans-serif;background:#0a0a12;color:#eee;padding:20px;max-width:1000px;margin:auto}h2{color:#fff}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}button{padding:10px 24px;font-size:16px;cursor:pointer;background:#0f0;color:#000;border:none;border-radius:6px}section{margin-top:30px;border-top:2px solid #333;padding-top:20px}iframe,video{width:100%;aspect-ratio:16/9;border:none;border-radius:12px;background:#111;box-shadow:0 0 20px rgba(255,255,255,0.05)}p.note{font-size:12px;color:#aaa}</style></head>
 <body>
-<h2>Clean Player — Semua Metode (Abyss Embed + Direct Video)</h2>
-<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Paste Abyss embed URL atau direct .mp4/.m3u8">
-<button onclick="loadAll()">Render Semua</button>
+<h2>Clean Player — Uji 2 Player (Semua dari Server Abyss, Tanpa File Lokal)</h2>
+<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Abyss embed URL (hanya stream, tidak ada file lokal)">
+<button onclick="load()">Render</button>
 
-<section><h3>A. Default Iframe (seperti piratestudio21)</h3><iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe></section>
+<section><h3>1. Player Default (iframe — bisa terserang iklan embed Abyss)</h3><iframe id="def" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen></iframe></section>
 
-<section><h3>B. Custom Iframe Bersih + Suppress Popup (CSS/JS anti-iklan)</h3>
-<iframe id="cusIf" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;"></iframe>
-<p>Custom: wrapper bersih, CSS menyembunyikan elemen iklan, JS blok popup.</p>
-</section>
-
-<section><h3>C. Direct Video Tag (jika URL adalah file .mp4/.m3u8 langsung dari Abyss)</h3>
-<video id="cusVid" controls poster="" src=""></video>
-<p>Direct stream — paling bersih, tidak ada domain iklan.</p>
-</section>
-
-<section><h3>D. Mirror / Proxy Player (format vidfast-style: iframe + ulang)</h3>
-<iframe id="mirror" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #00f;"></iframe>
-</section>
-
-<div id="overlay">Memuat / Memblokir popup iklan...</div>
+<section><h3>2. Custom Player (iframe bersih — hanya stream Abyss, tidak ada file lokal .mp4)</h3><iframe id="cus" src="https://player.abyssplayer.com/Ny6cNEtDci" allowfullscreen style="border:2px solid #0f0;filter:contrast(1.05);"></iframe><p class="note">Custom: sama-sama stream dari server Abyss. Tidak ada file .mp4 lokal. Iklan dari Abyss tetap bergantung pada embed mereka.</p></section>
 
 <script>
-function loadAll() {
+function load() {
   const u = document.getElementById('url').value.trim();
   document.getElementById('def').src = u;
-  document.getElementById('cusIf').src = u;
-  // Direct: jika URL berisi mp4/m3u8, pakai; jika tidak, kosongkan
-  const isDirect = /\.(mp4|m3u8)/i.test(u);
-  document.getElementById('cusVid').src = isDirect ? u : '';
-  document.getElementById('mirror').src = u;
+  document.getElementById('cus').src = u;
 }
-// Suppress ad-popup attempt (best-effort)
-window.addEventListener('load', () => {
-  const obs = new MutationObserver(() => {
-    document.querySelectorAll('iframe, div, a').forEach(el => {
-      if (el.innerText && /ike?lan|pop?up|ads?/i.test(el.innerText)) el.style.display='none';
-    });
-  });
-  obs.observe(document.body, {childList:true, subtree:true});
-});
-loadAll();
+load();
 </script>
 </body></html>
