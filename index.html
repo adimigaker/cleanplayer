@@ -95,7 +95,16 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
   const finalUrl = URL.createObjectURL(new Blob(
     [await fetchRewritten(masterUrl, proxy)], {type:'application/vnd.apple.mpegurl'}));
   if (window.Hls && Hls.isSupported()) {
-    hls = new Hls({ maxBufferLength: 30 });
+    hls = new Hls({
+      maxBufferLength: 30,
+      startLevel: 0, // mulai dari kualitas terendah (hemat data)
+      fragLoadingMaxRetry: 6,
+      manifestLoadingMaxRetry: 4,
+      levelLoadingMaxRetry: 6,
+      fragLoadingRetryDelay: 1500,
+      manifestLoadingRetryDelay: 1500,
+      levelLoadingRetryDelay: 1500,
+    });
     hls.loadSource(finalUrl);
     hls.attachMedia(v);
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
