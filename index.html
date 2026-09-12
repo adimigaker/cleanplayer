@@ -1,15 +1,28 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clean Player</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;background:#111;color:#eee}input{width:100%;padding:12px;font-size:16px}video{width:100%;margin-top:20px;border:2px solid #444;border-radius:8px}</style></head>
+<html><head><meta charset="utf-8"><title>Clean Player Test</title><style>body{font-family:sans-serif;max-width:960px;margin:30px auto;background:#111;color:#eee}input{width:100%;padding:12px;font-size:16px;margin-bottom:10px}button{padding:10px 24px;font-size:16px}section{margin-top:30px;border-top:2px solid #444;padding-top:20px}.box{margin-top:10px}</style></head>
 <body>
-<h2>Clean Player</h2>
-<input id="url" placeholder="Paste embed URL (e.g. https://player.abyssplayer.com/Ny6cNEtDci)" value="https://player.abyssplayer.com/Ny6cNEtDci">
+<h2>Clean Player — Uji 2 Player</h2>
+<input id="url" value="https://player.abyssplayer.com/Ny6cNEtDci" placeholder="Paste embed URL">
 <button onclick="load()">Render</button>
-<video id="v" controls></video>
+
+<section>
+<h3>1. Player Default (iframe seperti piratestudio21)</h3>
+<div id="default" class="box"></div>
+</section>
+
+<section>
+<h3>2. Custom Player (video tag bersih)</h3>
+<div id="custom" class="box"></div>
+</section>
+
 <script>
 function load() {
   const u = document.getElementById('url').value.trim();
-  // Jika URL embed iframe, coba ambil src video dari iframe (kasus sederhana: asumsikan direct video atau iframe src)
-  document.getElementById('v').src = u; // placeholder; untuk iframe bisa ganti dengan iframe embed
+  // Default iframe
+  document.getElementById('default').innerHTML = '<iframe src="'+u+'" style="width:100%;aspect-ratio:16/9;border:none;border-radius:8px;" allowfullscreen></iframe>';
+  // Custom video (asumsikan URL bisa langsung; jika iframe, fallback ke iframe dalam box tapi tanpa iklan wrapper)
+  document.getElementById('custom').innerHTML = '<video src="'+u+'" controls style="width:100%;aspect-ratio:16/9;border:2px solid #444;border-radius:8px;"></video><p style="font-size:12px;color:#aaa">Custom video tag — jika URL adalah halaman embed (bukan file video langsung), player ini akan gagal memutar.</p>';
 }
+load();
 </script>
 </body></html>
