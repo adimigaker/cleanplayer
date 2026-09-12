@@ -28,6 +28,8 @@
   #flashL{left:14px}#flashR{right:14px}
   #cfg{position:absolute;right:10px;top:52px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:6;min-width:200px}
   #v{width:100%;aspect-ratio:16/9;display:block;background:#000}
+  #stage{display:flex;flex-direction:column;justify-content:center}
+  #stage.portrait #v{aspect-ratio:auto;height:auto;max-height:100%}
   #bigplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;cursor:pointer;background:rgba(0,0,0,.25)}
   #bigplay span{width:84px;height:84px;border-radius:50%;background:rgba(0,255,0,.9);color:#000;font-size:36px;display:flex;align-items:center;justify-content:center;padding-left:6px}
   #title{position:absolute;top:0;left:0;right:0;padding:10px 14px;font-size:15px;font-weight:bold;background:linear-gradient(rgba(0,0,0,.7),transparent);pointer-events:none}
@@ -39,7 +41,7 @@
   #seek{flex:1;accent-color:#0f0;margin:0}
   #seekRow{display:flex;margin-top:2px}
   #time{font-size:12px;color:#ddd;white-space:nowrap}
-  #vol{width:70px;accent-color:#0f0}
+  #subPos{width:100%;accent-color:#00a4dc}
   #bar select{padding:6px;font-size:13px}
   #cfg{position:absolute;right:10px;bottom:64px;background:#1a1a24;border:1px solid #444;border-radius:8px;padding:10px;display:none;z-index:5;min-width:200px}
   #cfg label{display:block;margin-top:6px}
@@ -57,12 +59,12 @@
   #bigplay span{width:76px;height:76px;border-radius:50%;background:rgba(20,20,20,.55);color:#fff;font-size:44px;display:flex;align-items:center;justify-content:center}
   #bigplay span.material-icons{font-size:44px}
   #seek{accent-color:#00a4dc}
-  #vol{accent-color:#00a4dc}
+  #subPos{accent-color:#00a4dc}
   #qBadge{color:#fff;font-weight:normal}
   #time{color:#eee}
   #seek{flex:1;margin:0}
   #time{font-size:12px;white-space:nowrap}
-  #vol{width:70px}
+  #subPos{width:100%}
   #bar select{padding:6px;font-size:13px}
 </style>
 </head>
@@ -104,8 +106,8 @@
       <option value="0.5">0.5x</option><option value="1" selected>1x</option>
       <option value="1.5">1.5x</option><option value="2">2x</option>
     </select>
-    <label>Volume</label>
-    <input id="vol" type="range" min="0" max="100" value="100">
+    <label>Tinggi Subtitle</label>
+    <input id="subPos" type="range" min="-8" max="-1" step="1" value="-1">
   </div>
 </div>
 <div id="status">Menunggu URL…</div>
@@ -175,8 +177,20 @@ $('stage').addEventListener('click', (e) => {
   if (e.target.closest('button,select,input,#cfg')) return;
   tapAt(e.clientX);
 });
+// Sentuh bagian luar popup setting = minimized (capture: berjalan sebelum handler lain)
+document.addEventListener('click', (e) => {
+  const c = $('cfg');
+  if (c.style.display === 'block' && !e.target.closest('#cfg') && !e.target.closest('#btnCfg')) {
+    c.style.display = 'none';
+  }
+}, true);
 $('bigplay').addEventListener('click', (e) => { e.stopPropagation(); togglePlay(); });
 v.addEventListener('play', () => { setBigIcon(); showUI(); });
+v.addEventListener('loadedmetadata', () => {
+  // Deteksi rasio SEBELUM memutar: vertikal -> player ikut portrait (fit lebar)
+  const por = v.videoHeight > v.videoWidth;
+  $('stage').classList.toggle('portrait', por);
+});
 v.addEventListener('pause', () => {
   setBigIcon();
   $('stage').classList.remove('uiHidden'); $('stage').classList.remove('hideCursor');
@@ -232,6 +246,7 @@ function pickSub(i) {
   const tr = v.textTracks;
   [...tr].forEach((t, k) => t.mode = (String(k) === String(i) ? 'showing' : 'hidden'));
   $('btnCC').className = 'on';
+  applySubLine();
 }
 v.addEventListener('timeupdate', () => {
   if (v.duration) $('seek').value = Math.round(v.currentTime / v.duration * 1000);
@@ -241,8 +256,16 @@ v.addEventListener('loadedmetadata', () => { $('time').textContent = fmt(v.curre
 $('seek').addEventListener('input', (e) => {
   if (v.duration) v.currentTime = e.target.value / 1000 * v.duration;
 });
-$('vol').addEventListener('input', (e) => {
-  v.volume = e.target.value / 100; v.muted = false;
+let subLine = -1;
+function applySubLine() {
+  for (const tr of v.textTracks) {
+    if (!tr.cues) continue;
+    for (const c of tr.cues) { try { c.line = subLine; } catch(e){} }
+  }
+}
+$('subPos').addEventListener('input', (e) => {
+  subLine = parseInt(e.target.value, 10);
+  applySubLine();
 });
 // ── Streaming ──
 const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
@@ -341,6 +364,7 @@ async function loadSubtitles(meta, proxy) {
   if (okCount) {
     $('btnCC').className = 'on';
     setTimeout(() => {
+      applySubLine();
       const tr = v.textTracks[0];
       const c = tr && tr.cues ? tr.cues.length : 0;
       if (c > 0) st('Sub: ' + names.slice(0, okCount).join(', ') + ' — ' + c + ' cue.');
@@ -424,6 +448,7 @@ async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
   subDoneFor = '';
+  $('stage').classList.remove('portrait');
   if (!(await mseOk())) {
     starting = false;
     st('Browser sesi ini tak bisa memutar video (MSE macet) — muat ulang halaman lalu coba lagi.');
