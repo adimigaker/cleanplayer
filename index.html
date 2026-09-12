@@ -217,6 +217,7 @@ function toggleCfg() {
   c.style.display = c.style.display === 'block' ? 'none' : 'block';
 }
 function castUrl() {
+  if (!curMeta) return v.src || ''; // mode langsung: pakai URL asli (publik)
   if (!curLevels.length) return '';
   const qi = $('q') ? parseInt($('q').value || '0', 10) : 0;
   const lv = curLevels[qi] || curLevels[0];
@@ -294,7 +295,12 @@ function castToChromecast(stream, title) {
 }
 let lastMeta = null, lastProxy = '';
 async function doDownload() {
-  if (!lastMeta) { st('Putar video dulu sebelum download.'); return; }
+  if (!lastMeta) {
+    // Mode langsung: unduh file yg sedang diputar
+    if (v.src && v.src.startsWith('http')) { window.open(v.src, '_blank'); st('Download dibuka di tab baru.'); }
+    else st('Putar video dulu sebelum download.');
+    return;
+  }
   st('Menyiapkan link download...');
   try {
     const id = hashId($('embed').value);
@@ -541,6 +547,45 @@ async function mseOk() {
     return opened === true;
   } catch(e) { return false; }
 }
+async function playDirectMp4(url, label) {
+  if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
+  curLevels = []; curMeta = null;
+  [...v.querySelectorAll('track')].forEach(t => t.remove());
+  $('subSel').innerHTML = '';
+  $('q').innerHTML = '';
+  const o = document.createElement('option');
+  o.value = '0'; o.textContent = label || 'MP4 langsung';
+  $('q').appendChild(o);
+  $('qBadge').textContent = '';
+  $('title').textContent = label || url.split('/').pop().split('?')[0];
+  document.title = '▶ ' + ($('title').textContent || 'Clean Player');
+  lastMeta = null; lastProxy = '';
+  v.src = url;
+  try { await v.play(); } catch(e) {}
+  starting = false;
+  st('OK — memutar langsung (tanpa token/proxy).');
+}
+async function playDirectHls(url) {
+  if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
+  curLevels = [{ h: 'Auto', bw: 0, url }];
+  curMeta = null;
+  $('q').innerHTML = '<option value="0">Auto</option>';
+  $('qBadge').textContent = '';
+  $('title').textContent = url.split('/').pop().split('?')[0];
+  document.title = '▶ ' + ($('title').textContent || 'Clean Player');
+  lastMeta = null; lastProxy = '';
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls();
+    hls.loadSource(url);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { starting = false; v.play().catch(() => {}); st('OK — HLS langsung.'); });
+    hls.on(Hls.Events.ERROR, (e, data) => {
+      if (data.fatal) { starting = false; st('Error: ' + data.details + ' — host mungkin tak mengizinkan CORS.'); }
+    });
+  } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    v.src = url; v.play().catch(() => {}); starting = false; st('Native HLS.');
+  } else { starting = false; st('Browser tidak mendukung HLS.'); }
+}
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
@@ -549,6 +594,20 @@ async function start() {
   if (!(await mseOk())) {
     starting = false;
     st('Browser sesi ini tak bisa memutar video (MSE macet) — muat ulang halaman lalu coba lagi.');
+    return;
+  }
+  const raw = $('embed').value.trim();
+  // ── URL langsung (MP4/HLS): tanpa token, tanpa proxy ──
+  if (!/seeks\.cloud|abyssplayer/i.test(raw) && /^https?:\/\//i.test(raw)) {
+    try {
+      if (/\.m3u8(\?|$)/i.test(raw) || (/\.txt(\?|$)/i.test(raw) && !/seeks/i.test(raw))) {
+        st('URL langsung terdeteksi — memuat HLS...');
+        await playDirectHls(raw);
+      } else {
+        st('URL langsung terdeteksi — memutar MP4...');
+        await playDirectMp4(raw);
+      }
+    } catch(e) { starting = false; st('Gagal: ' + e.message); }
     return;
   }
   let proxy = $('proxy').value.trim();
@@ -569,6 +628,7 @@ async function start() {
   } catch(e) { starting = false; st('Gagal: ' + e.message); }
 }
 $('q').addEventListener('change', (e) => {
+  if (!curMeta || !curLevels.length) return; // mode langsung: 1 kualitas
   const i = parseInt(e.target.value, 10);
   const pos = v.currentTime || 0;
   playVariant(i, pos).catch((err) => st('Gagal ganti kualitas: ' + err.message));
