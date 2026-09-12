@@ -74,7 +74,7 @@ class H(BaseHTTPRequestHandler):
                     hdrs['Range'] = rng
                 req = urllib.request.Request(target, headers=hdrs)
                 try:
-                    resp = urllib.request.urlopen(req, timeout=25)
+                    resp = urllib.request.urlopen(req, timeout=60)
                     status = resp.status
                 except urllib.error.HTTPError as he:
                     resp = he

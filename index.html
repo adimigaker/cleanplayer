@@ -262,11 +262,18 @@ async function doDownload() {
     if (!j.mp4) { st('Video ini tak ada file download.'); return; }
     // Atribut download diabaikan lintas-origin (halaman pindah!) -> buka tab baru agar player aman
     const pxs = [lastProxy, ...FALLBACKS.filter(p => p !== lastProxy)];
+    let firstHttp = '';
     for (const px0 of pxs) {
       try {
         const px = px0.startsWith('http') ? px0 : location.origin + px0;
+        if (!firstHttp && px0.startsWith('http')) firstHttp = px;
         const url = px + encodeURIComponent(j.mp4);
-        const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+        const ctl = new AbortController();
+        const to = setTimeout(() => ctl.abort(), 12000);
+        let probe;
+        try {
+          probe = await fetch(url, { headers: { Range: 'bytes=0-0' }, signal: ctl.signal });
+        } finally { clearTimeout(to); ctl.abort(); }
         if (probe.ok || probe.status === 206 || probe.status === 416) {
           window.open(url, '_blank');
           st('Download dibuka di tab baru: ' + (j.title || 'video'));
@@ -274,7 +281,11 @@ async function doDownload() {
         }
       } catch(e) {}
     }
-    st('Download gagal: semua jalur proxy macet.');
+    // Probe bisa gagal di jaringan seluler padahal server OK -> tetap coba buka jalur utama
+    if (firstHttp) {
+      window.open(firstHttp + encodeURIComponent(j.mp4), '_blank');
+      st('Jaringan lambat — download tetap dibuka di tab baru, tunggu sebentar.');
+    } else st('Download gagal: semua jalur proxy macet.');
   } catch(e) { st('Download gagal: ' + e.message); }
 }
 function pickSub(i) {
