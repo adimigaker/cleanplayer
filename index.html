@@ -61,11 +61,12 @@ async function fetchRewritten(url, proxy) {
   let lastErr = null;
   for (const px0 of cands) {
     const px = px0.startsWith('http') ? px0 : location.origin + px0;
+    const pxOrigin = new URL(px, location.href).origin;
     try {
       const txt = await (await fetch(px + encodeURIComponent(url))).text();
       if (!txt.trim().startsWith('#EXTM3U')) { lastErr = 'bukan playlist via ' + px0; continue; }
       const absProxy = (s) => {
-        if (s.includes('proxy?url=') || s.includes('allorigins') || s.includes('corsproxy')) return s.startsWith('http') ? s : location.origin + s;
+        if (s.includes('proxy?url=') || s.includes('allorigins') || s.includes('corsproxy')) return s.startsWith('http') ? s : pxOrigin + s;
         return px + encodeURIComponent(new URL(s, url).href);
       };
       return txt.split('\n').map(line => {
