@@ -37,7 +37,7 @@
 <script>
 const KEY = 'kiemtienmua911ca', IV = '1234567890oiuytr';
 const te = new TextEncoder(), td = new TextDecoder();
-let hls = null;
+let hls = null, starting = false, fragErr = 0;
 const st = (m) => { document.getElementById('status').textContent = m; };
 
 function hashId(embedUrl) {
@@ -108,6 +108,7 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
     hls.loadSource(finalUrl);
     hls.attachMedia(v);
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+      starting = false;
       st('OK — ' + (title ? title + ' — ' : '') + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
       document.title = '▶ ' + (title || 'Clean Player');
       const q = document.getElementById('q');
@@ -119,14 +120,23 @@ async function playMaster(masterUrl, proxy, subUrl, title) {
       v.play().catch(() => {});
     });
     hls.on(Hls.Events.ERROR, (e, data) => {
-      window.__le = (data.details || '') + ' :: ' + String(data.url || (data.context && data.context.url) || '').slice(0,160) + ' :: http' + (data.response ? data.response.code : '?');
-      if (data.fatal) st('Error: ' + data.details + ' — cek proxy.');
+      if (data.type === 'networkError' && !data.fatal) {
+        fragErr++;
+        if (fragErr >= 3 && hls) {
+          hls.currentLevel = 0; // kunci ke terendah, stop ABR loncat
+          document.getElementById('q').value = '0';
+          st('Jaringan goyah — dikunci ke kualitas terendah.');
+        }
+      }
+      if (data.fatal) { starting = false; st('Error: ' + data.details + ' — cek proxy.'); }
     });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
     v.src = finalUrl; v.play().catch(() => {}); st('Native HLS.');
   } else st('Browser tidak mendukung HLS.');
 }
 async function start() {
+  if (starting) { st('Sabar — masih memuat...'); return; }
+  starting = true; fragErr = 0;
   let proxy = document.getElementById('proxy').value.trim();
   try {
     // Proxy otomatis dari repo (ditulis oleh tunnel di server) — nol konfigurasi.
@@ -144,7 +154,7 @@ async function start() {
     const subUrl = subPath ? 'https://ps21.seeks.cloud' + String(subPath).split('#')[0] : '';
     st('Token OK — memuat playlist...');
     await playMaster(master, proxy, subUrl, meta.title);
-  } catch(e) { st('Gagal: ' + e.message); }
+  } catch(e) { starting = false; st('Gagal: ' + e.message); }
 }
 document.getElementById('q').addEventListener('change', (e) => {
   if (hls) hls.currentLevel = parseInt(e.target.value, 10);
