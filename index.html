@@ -13,49 +13,84 @@
   button{padding:10px 24px;font-size:16px;background:#0f0;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:bold}
   video{width:100%;aspect-ratio:16/9;background:#000;border:none;border-radius:12px;box-shadow:0 0 24px rgba(0,255,0,.08);margin-top:16px}
   p.note{font-size:12px;color:#888}
-  #status{font-size:13px;color:#0f0;margin-top:8px}
+  #status{font-size:13px;color:#0f0;margin-top:8px;white-space:pre-wrap}
 </style>
 </head>
 <body>
 <h2>Clean Player — Custom HLS + Subtitle Indonesia</h2>
 <p class="note">Player buatan sendiri: hls.js + &lt;video&gt; + &lt;track&gt;. Tanpa iframe Abyss = tanpa iklan/embed pihak ketiga.</p>
 
-<label>Master .m3u8 URL</label>
-<input id="src" value="https://ps21.seeks.cloud/v4/pl/spz.stellarpathmedia.sbs/3ae/plq5e/master.1787566257.m3u8?k=b93vrLgDdJko3p1a5imjJA&kx=1789226574">
-<label>Subtitle .vtt URL (Indonesia)</label>
-<input id="sub" value="https://ps21.seeks.cloud/VsbUDDxl3mpVQzZj1XyctA/3ae/5z1ivvbc/8gjldh/LRpEdq.vtt">
+<label>ID Video seeks (hash #...)</label>
+<input id="vid" value="plq5e">
+<label>Proxy CORS untuk playlist/subtitle (ganti dengan worker sendiri bila ada)</label>
+<input id="proxy" value="https://api.allorigins.win/raw?url=">
+<label>Atau master .m3u8 manual (kosongkan ID bila diisi)</label>
+<input id="src" value="" placeholder="https://.../master.m3u8">
 <div class="row">
   <div><label>Kualitas</label><select id="q"><option value="-1">Auto</option></select></div>
-  <div><label>&nbsp;</label><button onclick="load()" style="width:100%">Putar</button></div>
+  <div><label>&nbsp;</label><button onclick="start()" style="width:100%">Putar</button></div>
 </div>
 
-<video id="v" controls playsinline crossorigin="anonymous">
+<video id="v" controls playsinline>
   <track id="trk" label="Indonesia" kind="subtitles" srclang="id" default>
 </video>
 <div id="status">Siap.</div>
-<p class="note">Token k/kx kedaluwarsa berkala — jika error, refresh via <code>/api/v1/video</code> (lihat skill seeks-stream-extract).</p>
+<p class="note">Token di-refresh otomatis via /api/v1/video + dekripsi AES di browser. Segmen video langsung dari CDN (CORS OK).</p>
 
 <script>
+const KEY = 'kiemtienmua911ca', IV = '1234567890oiuytr';
+const te = new TextEncoder(), td = new TextDecoder();
 let hls = null;
-function load() {
-  const raw = document.getElementById('src').value.trim();
-  const rawSub = document.getElementById('sub').value.trim();
-  // Proxy same-origin agar lolos cek Referer/Origin server (wajib utk seeks/stellar)
-  const needProxy = (u) => /seeks\.cloud|stellarpathmedia|94\.131\.217\.15/.test(u);
-  const src = needProxy(raw) ? '/proxy?url=' + encodeURIComponent(raw) : raw;
-  const sub = needProxy(rawSub) ? '/proxy?url=' + encodeURIComponent(rawSub) : rawSub;
+const st = (m) => { document.getElementById('status').textContent = m; };
+
+async function aesKey() {
+  return crypto.subtle.importKey('raw', te.encode(KEY), {name:'AES-CBC'}, false, ['decrypt']);
+}
+async function fetchVideoMeta(id) {
+  const w = window.screen.width || 800, h = window.screen.height || 600;
+  const r = await fetch('https://ps21.seeks.cloud/api/v1/video?id=' + encodeURIComponent(id) + '&w=' + w + '&h=' + h + '&r=');
+  const hex = (await r.text()).trim();
+  const data = new Uint8Array(hex.match(/[\da-f]{2}/gi).map(x => parseInt(x, 16)));
+  const pt = await crypto.subtle.decrypt({name:'AES-CBC', iv: te.encode(IV)}, await aesKey(), data);
+  return JSON.parse(td.decode(pt));
+}
+// Ambil teks via proxy CORS, tulis ulang URI relatif -> absolut ber-proxy
+async function fetchRewritten(masterUrl, proxy) {
+  const txt = await (await fetch(proxy + encodeURIComponent(masterUrl))).text();
+  const base = masterUrl;
+  return txt.split('\n').map(line => {
+    const s = line.trim();
+    const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
+    if (m) return m[1] + proxy + encodeURIComponent(new URL(m[2], base).href) + m[3];
+    if (s && !s.startsWith('#')) return proxy + encodeURIComponent(new URL(s, base).href);
+    return line;
+  }).join('\n');
+}
+async function loadSubtitle(subUrl, proxy) {
+  try {
+    const needProxy = /seeks\.cloud|stellarpathmedia/.test(subUrl);
+    const u = needProxy ? proxy + encodeURIComponent(subUrl) : subUrl;
+    const blob = await (await fetch(u)).blob();
+    document.getElementById('trk').src = URL.createObjectURL(blob);
+  } catch(e) { /* subtitle opsional */ }
+}
+async function playMaster(masterUrl, proxy) {
   const v = document.getElementById('v');
-  const st = document.getElementById('status');
-  document.getElementById('trk').src = sub;
   if (hls) { hls.destroy(); hls = null; }
   document.getElementById('q').innerHTML = '<option value="-1">Auto</option>';
+  const needProxy = /seeks\.cloud|stellarpathmedia|94\.131\.217\.15/.test(masterUrl);
+  let finalUrl = masterUrl;
+  if (needProxy) {
+    st('Mengambil playlist via proxy...');
+    const rewritten = await fetchRewritten(masterUrl, proxy);
+    finalUrl = URL.createObjectURL(new Blob([rewritten], {type:'application/vnd.apple.mpegurl'}));
+  }
   if (window.Hls && Hls.isSupported()) {
     hls = new Hls({ maxBufferLength: 30 });
-    hls.loadSource(src);
+    hls.loadSource(finalUrl);
     hls.attachMedia(v);
     hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
-      st.textContent = 'Manifest OK — ' + data.levels.length + ' kualitas: ' +
-        data.levels.map(l => l.height + 'p').join(', ');
+      st('OK — ' + data.levels.length + ' kualitas: ' + data.levels.map(l => l.height + 'p').join(', '));
       const q = document.getElementById('q');
       data.levels.forEach((l, i) => {
         const o = document.createElement('option');
@@ -65,20 +100,40 @@ function load() {
       v.play().catch(() => {});
     });
     hls.on(Hls.Events.ERROR, (e, data) => {
-      if (data.fatal) st.textContent = 'Error: ' + data.type + ' / ' + data.details + ' (mungkin token kedaluwarsa)';
+      if (data.fatal) st('Error: ' + data.details + ' — coba ganti proxy / refresh.');
     });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-    v.src = src;
-    st.textContent = 'Native HLS (Safari).';
-    v.play().catch(() => {});
-  } else {
-    st.textContent = 'Browser tidak mendukung HLS.';
-  }
+    v.src = finalUrl; v.play().catch(() => {}); st('Native HLS.');
+  } else st('Browser tidak mendukung HLS.');
+}
+async function start() {
+  const proxy = document.getElementById('proxy').value.trim();
+  const manual = document.getElementById('src').value.trim();
+  try {
+    if (manual) {
+      await playMaster(manual, proxy);
+      return;
+    }
+    const id = document.getElementById('vid').value.trim();
+    st('Refresh token via API...');
+    const meta = await fetchVideoMeta(id);
+    // Prioritas: varian TikTok (CORS OK) -> cfNative -> source
+    const tiktok = meta.hlsVideoTiktok
+      ? 'https://ps21.seeks.cloud' + meta.hlsVideoTiktok.split('?')[0]
+      : null;
+    const master = tiktok || meta.cfNative || meta.source;
+    st('Master: ' + master.slice(0, 90) + '...');
+    const subPath = meta.subtitle && meta.subtitle['Bahasa Indonesia'];
+    const subUrl = subPath ? 'https://ps21.seeks.cloud' + subPath.split('#')[0] : '';
+    if (subUrl) loadSubtitle(subUrl, proxy);
+    document.title = '▶ ' + (meta.title || id);
+    await playMaster(master, proxy);
+  } catch(e) { st('Gagal: ' + e.message); }
 }
 document.getElementById('q').addEventListener('change', (e) => {
   if (hls) hls.currentLevel = parseInt(e.target.value, 10);
 });
-load();
+start();
 </script>
 </body>
 </html>
