@@ -38,8 +38,12 @@
 <script>
 let hls = null;
 function load() {
-  const src = document.getElementById('src').value.trim();
-  const sub = document.getElementById('sub').value.trim();
+  const raw = document.getElementById('src').value.trim();
+  const rawSub = document.getElementById('sub').value.trim();
+  // Proxy same-origin agar lolos cek Referer/Origin server (wajib utk seeks/stellar)
+  const needProxy = (u) => /seeks\.cloud|stellarpathmedia|94\.131\.217\.15/.test(u);
+  const src = needProxy(raw) ? '/proxy?url=' + encodeURIComponent(raw) : raw;
+  const sub = needProxy(rawSub) ? '/proxy?url=' + encodeURIComponent(rawSub) : rawSub;
   const v = document.getElementById('v');
   const st = document.getElementById('status');
   document.getElementById('trk').src = sub;
