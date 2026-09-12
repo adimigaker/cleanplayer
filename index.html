@@ -55,33 +55,26 @@ async function fetchVideoMeta(id) {
 }
 const FALLBACKS = ['https://api.allorigins.win/raw?url=', '/proxy?url='];
 async function fetchRewritten(url, proxy) {
-  // Idempoten: baris yg sudah '/proxy?url=' hanya diabsolutkan.
-  // Coba proxy utama lalu cadangan; validasi isi harus playlist.
-  const cands = [proxy, ...FALLBACKS.filter(p => p !== proxy)];
-  let lastErr = null;
-  for (const px0 of cands) {
-    const px = px0.startsWith('http') ? px0 : location.origin + px0;
-    const pxOrigin = new URL(px, location.href).origin;
-    try {
-      const txt = await (await fetch(px + encodeURIComponent(url))).text();
-      if (!txt.trim().startsWith('#EXTM3U')) { lastErr = 'bukan playlist via ' + px0; continue; }
-      const absProxy = (s) => {
-        if (s.includes('proxy?url=') || s.includes('allorigins') || s.includes('corsproxy')) return s.startsWith('http') ? s : pxOrigin + s;
-        return px + encodeURIComponent(new URL(s, url).href);
-      };
-      return txt.split('\n').map(line => {
-        const s = line.trim();
-        const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
-        if (m) {
-          const inner = /proxy\?url=|allorigins|corsproxy/.test(m[2]) ? m[2] : new URL(m[2], url).href;
-          return m[1] + absProxy(inner) + m[3];
-        }
-        if (s && !s.startsWith('#')) return absProxy(/^(http|proxy\?url=)/.test(s) ? s : new URL(s, url).href);
-        return line;
-      }).join('\n');
-    } catch(e) { lastErr = e.message; }
-  }
-  throw new Error('Semua proxy gagal (' + lastErr + '). Deploy worker.js sendiri.');
+  // Master/varian dimuat LANGSUNG (server kirim ACAO:*); hanya SEGMEN+MAP yg lewat proxy.
+  const txt = await (await fetch(url)).text();
+  if (!txt.trim().startsWith('#EXTM3U')) throw new Error('Master bukan playlist.');
+  const px = proxy.startsWith('http') ? proxy : location.origin + proxy;
+  const needPx = (u) => /seeks\.cloud|stellarpathmedia|adaptiveframework|94\.131\.217\./.test(u);
+  const viaPx = (u) => px + encodeURIComponent(u);
+  return txt.split('\n').map(line => {
+    const s = line.trim();
+    const m = s.match(/^(.*URI=")([^"]+)(".*)$/);
+    if (m) {
+      const abs = new URL(m[2], url).href;
+      return m[1] + (needPx(abs) ? viaPx(abs) : abs) + m[3];
+    }
+    if (s && !s.startsWith('#')) {
+      const abs = new URL(s, url).href;
+      if (/\.m3u8(\?|$)/.test(abs)) return abs; // varian: langsung
+      return needPx(abs) ? viaPx(abs) : abs;    // segmen: via proxy
+    }
+    return line;
+  }).join('\n');
 }
 async function playMaster(masterUrl, proxy, subUrl, title) {
   const v = document.getElementById('v');
