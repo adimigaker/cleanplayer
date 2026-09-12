@@ -1,7 +1,7 @@
 import json
 import re
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urljoin, quote
 
 
@@ -69,6 +69,8 @@ class H(BaseHTTPRequestHandler):
                 resp = urllib.request.urlopen(req, timeout=25)
                 body = resp.read()
                 ctype = resp.headers.get_content_type()
+                # Rewrite .m3u8 di SINI (varian/segmen absolut -> /proxy?url= relatif).
+                # Client (index.html) idempoten: baris yg sudah proxy hanya diabsolutkan.
                 if 'm3u8' in target or target.endswith('.txt') or 'mpegurl' in ctype:
                     try:
                         body = rewrite_playlist(body.decode('utf-8', errors='ignore'), target).encode()
@@ -91,4 +93,4 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-HTTPServer(('127.0.0.1', 8902), H).serve_forever()
+ThreadingHTTPServer(('127.0.0.1', 8902), H).serve_forever()
