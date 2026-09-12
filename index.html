@@ -112,6 +112,7 @@
 </div>
 <div id="status">Menunggu URL…</div>
 
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
 <script>
 const KEY = 'kiemtienmua911ca', IV = '1234567890oiuytr';
 const te = new TextEncoder(), td = new TextDecoder();
@@ -233,9 +234,17 @@ async function doCast() {
       return;
     }
   } catch(e) {}
-  // 2) Android: lempar stream ke VLC (fallback: buka link biasa)
   const stream = castUrl();
   if (!stream) { st('Putar video dulu sebelum cast.'); return; }
+  // 2) Chromecast Sender ke Smart TV (Default Receiver, tanpa registrasi)
+  try {
+    await castToChromecast(stream, (curMeta && curMeta.title) || 'Clean Player');
+    st('Casting ke TV...');
+    return;
+  } catch(e) {
+    if (e && e.byUser) return; // user menutup dialog perangkat -> diam
+  }
+  // 3) Android: lempar stream ke VLC (fallback: buka link biasa)
   if (/Android/i.test(navigator.userAgent)) {
     location.href = 'intent://' + stream.replace(/^https?:\/\//, '') +
       '#Intent;scheme=https;type=video/*;package=org.videolan.vlc;S.browser_fallback_url=' +
@@ -243,9 +252,45 @@ async function doCast() {
     st('Membuka VLC... (tidak ada? link juga disiapkan di tab baru)');
     return;
   }
-  // 3) Desktop/lainnya: salin link streaming (tempel di VLC/MX/TV)
+  // 4) Desktop/lainnya: salin link streaming (tempel di VLC/MX/TV)
   try { await navigator.clipboard.writeText(stream); st('Link streaming disalin — tempel di VLC / MX Player / TV.'); }
-  catch(e) { prompt('Salin link streaming:', stream); }
+  catch(e2) { prompt('Salin link streaming:', stream); }
+}
+let castApiReady = false, castSession = null;
+window.__onGCastApiAvailable = function(isAvail) {
+  if (!isAvail) return;
+  try {
+    chrome.cast.initialize(
+      new chrome.cast.ApiConfig(
+        new chrome.cast.SessionRequest(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID),
+        (s) => { castSession = s; },
+        (r) => {},
+        chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED),
+      () => { castApiReady = true; },
+      () => { castApiReady = false; });
+  } catch(e) {}
+};
+function castToChromecast(stream, title) {
+  return new Promise((res, rej) => {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.cast || !castApiReady) return rej(new Error('noapi'));
+      const doLoad = (sess) => {
+        castSession = sess;
+        const mi = new chrome.cast.media.MediaInfo(stream, 'application/x-mpegurl');
+        mi.metadata = new chrome.cast.media.GenericMediaMetadata();
+        mi.metadata.title = title || 'Clean Player';
+        sess.loadMedia(new chrome.cast.media.LoadRequest(mi),
+          () => res('ok'),
+          (e) => rej(new Error('load:' + ((e && e.description) || e))));
+      };
+      if (castSession) return doLoad(castSession);
+      chrome.cast.requestSession(doLoad, (e) => {
+        const c = e && e.code;
+        if (c === chrome.cast.ErrorCode.CANCEL) return rej({ byUser: true });
+        rej(new Error('sess:' + ((e && e.description) || e)));
+      });
+    } catch(e) { rej(e); }
+  });
 }
 let lastMeta = null, lastProxy = '';
 async function doDownload() {
