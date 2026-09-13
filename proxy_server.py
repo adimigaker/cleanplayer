@@ -2,6 +2,7 @@ import base64
 import collections
 import hashlib
 import json
+import os
 import re
 import shutil
 import socket
@@ -152,7 +153,7 @@ def rewrite_playlist(text, base):
             out.append(line)
     return '\n'.join(out) + '\n'
 
-ROOT = '/tmp/cleanplayer'
+ROOT = os.path.dirname(os.path.abspath(__file__))
 UPSTREAM_REFERER = 'https://ps21.seeks.cloud/'
 
 class H(BaseHTTPRequestHandler):
