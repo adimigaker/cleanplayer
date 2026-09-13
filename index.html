@@ -719,6 +719,11 @@ $('q').addEventListener('change', (e) => {
   const pos = v.currentTime || 0;
   playVariant(i, pos).catch((err) => st('Gagal ganti kualitas: ' + err.message));
 });
+// Deep link: ?play=<url> langsung putar (dipakai mode playlist via iframe)
+try {
+  const qp = new URLSearchParams(location.search).get('play');
+  if (qp) { $('embed').value = qp; start(); }
+} catch(e) {}
 </script>
 </body>
 </html>
