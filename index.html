@@ -622,9 +622,9 @@ async function playAbyss(raw) {
   if (!data || !data.sources || !data.sources.length) {
     starting = false; st('Abyss gagal: ' + (err || 'tidak ada sources')); return;
   }
-  abyssLevels = data.sources.map((s) => ({
+  abyssLevels = data.sources.map((s, qi) => ({
     label: s.label, res_id: s.res_id, size: s.size, url: s.url,
-    purl: abyssBase + '/proxy?url=' + encodeURIComponent(s.url),
+    purl: abyssBase + '/abyssplay?slug=' + encodeURIComponent(slug) + '&q=' + qi,
   }));
   const q = $('q');
   q.innerHTML = '';
