@@ -258,6 +258,11 @@ class H(BaseHTTPRequestHandler):
                         b = min(b, total - 1)
                         status = 206
                 n0, n1 = a // ABYSS_FRAG, b // ABYSS_FRAG
+                # Tanggapi cepat: satu respons dibatasi 8 fragmen (16 MB) agar
+                # byte pertama langsung jalan; browser minta sisanya sendiri.
+                if (n1 - n0 + 1) > 8 and rng:
+                    n1 = n0 + 7
+                    b = min((n1 + 1) * ABYSS_FRAG - 1, total - 1)
                 buf = bytearray()
                 for i in range(n0, n1 + 1):
                     buf += abyss_frag(slug, qi, i)
