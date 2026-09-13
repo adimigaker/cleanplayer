@@ -70,10 +70,10 @@
 </head>
 <body>
 <h2>Clean Player</h2>
-<p class="note">Tempel URL embed seeks, player otomatis ambil token + m3u8 + subtitle lalu memutar.</p>
+<p class="note">Tempel URL embed seeks / abyss / MP4-HLS langsung — player otomatis memutar.</p>
 
-<label>URL embed seeks</label>
-<input id="embed" type="text" value="" placeholder="https://ps21.seeks.cloud/#plq5e">
+<label>URL seeks / abyss / langsung</label>
+<input id="embed" type="text" value="" placeholder="https://ps21.seeks.cloud/#plq5e atau https://player.abyssplayer.com/FwgRBdn_d">
 <div><button id="btnGo" onclick="start()" style="width:100%">Putar</button></div>
 <label style="display:none">Proxy<input id="proxy" type="text" value="/proxy?url="></label>
 
@@ -513,7 +513,7 @@ async function playVariant(i, resume) {
 async function playMaster(masterUrl, proxy, meta) {
   const title = meta && meta.title;
   if (hls) { hls.destroy(); hls = null; }
-  curProxy = proxy; curMeta = meta;
+  curProxy = proxy; curMeta = meta; abyssLevels = [];
   // Subtitle dimuat saat video mulai BERJALAN (track yg dipasang terlalu dini gagal parse)
   const subOnce = () => { v.removeEventListener('playing', subOnce); loadSubtitles(meta, proxy); };
   v.addEventListener('playing', subOnce);
@@ -549,7 +549,7 @@ async function mseOk() {
 }
 async function playDirectMp4(url, label) {
   if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
-  curLevels = []; curMeta = null;
+  curLevels = []; curMeta = null; abyssLevels = [];
   [...v.querySelectorAll('track')].forEach(t => t.remove());
   $('subSel').innerHTML = '';
   $('q').innerHTML = '';
@@ -568,7 +568,7 @@ async function playDirectMp4(url, label) {
 async function playDirectHls(url) {
   if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
   curLevels = [{ h: 'Auto', bw: 0, url }];
-  curMeta = null;
+  curMeta = null; abyssLevels = [];
   $('q').innerHTML = '<option value="0">Auto</option>';
   $('qBadge').textContent = '';
   $('title').textContent = url.split('/').pop().split('?')[0];
@@ -586,6 +586,74 @@ async function playDirectHls(url) {
     v.src = url; v.play().catch(() => {}); starting = false; st('Native HLS.');
   } else { starting = false; st('Browser tidak mendukung HLS.'); }
 }
+// ── Abyss.to (MP4 progresif via /abyss endpoint) ──
+let abyssLevels = [];
+const fmtGB = (b) => (b/1073741824).toFixed(1) + ' GB';
+function abyssSlug(raw) {
+  let m = String(raw).match(/abyssplayer\.com\/([A-Za-z0-9_-]{7,17})/);
+  if (m) return m[1];
+  const all = String(raw).match(/[A-Za-z0-9_-]{7,17}/g);
+  return all ? all[all.length-1] : '';
+}
+async function playAbyss(raw) {
+  const slug = abyssSlug(raw);
+  if (!slug) { starting = false; st('Slug abyss tidak ketemu.'); return; }
+  st('Minta link abyss untuk ' + slug + '...');
+  abyssLevels = []; curLevels = []; curMeta = null;
+  let data = null;
+  const tries = ['abyss?slug=' + encodeURIComponent(slug)];
+  try {
+    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    if (auto.startsWith('http')) {
+      const base = auto.split('/proxy')[0];
+      tries.push(base + '/abyss?slug=' + encodeURIComponent(slug));
+    }
+  } catch(e) {}
+  let err = '';
+  for (const u of tries) {
+    try {
+      const r = await fetch(u);
+      data = await r.json();
+      if (data && data.sources && data.sources.length) break;
+      err = (data && data.error) || ('HTTP ' + r.status);
+      data = null;
+    } catch(e) { err = e.message; }
+  }
+  if (!data || !data.sources || !data.sources.length) {
+    starting = false; st('Abyss gagal: ' + (err || 'tidak ada sources')); return;
+  }
+  abyssLevels = data.sources.map((s) => ({
+    label: s.label, res_id: s.res_id, size: s.size, url: s.url,
+    purl: '/proxy?url=' + encodeURIComponent(s.url),
+  }));
+  const q = $('q');
+  q.innerHTML = '';
+  abyssLevels.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = s.label + ' (' + fmtGB(s.size) + ')';
+    q.appendChild(o);
+  });
+  const top = abyssLevels[0];
+  $('qBadge').textContent = top.label;
+  $('title').textContent = 'Abyss ' + slug + ' — ' + top.label;
+  document.title = '▶ Abyss ' + slug;
+  [...v.querySelectorAll('track')].forEach(t => t.remove());
+  $('subSel').innerHTML = '';
+  if (data.subtitles && data.subtitles.length) {
+    data.subtitles.forEach((s, i) => {
+      const o = document.createElement('option');
+      o.value = String(i); o.textContent = s.lang || ('sub' + i);
+      $('subSel').appendChild(o);
+    });
+  }
+  lastMeta = null; lastProxy = '';
+  st('OK — Abyss ' + slug + ': ' + abyssLevels.map(s => s.label).join(', ') + ' — memutar ' + top.label + ' via proxy...');
+  v.src = top.purl;
+  try { await v.play(); } catch(e) {}
+  starting = false;
+  st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + ').');
+}
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
@@ -597,6 +665,12 @@ async function start() {
     return;
   }
   const raw = $('embed').value.trim();
+  // ── Abyss.to: decrypt via /abyss lalu MP4 langsung ──
+  if (/abyssplayer\.com|abyss\.to/i.test(raw)) {
+    try { await playAbyss(raw); }
+    catch(e) { starting = false; st('Gagal: ' + e.message); }
+    return;
+  }
   // ── URL langsung (MP4/HLS): tanpa token, tanpa proxy ──
   if (!/seeks\.cloud|abyssplayer/i.test(raw) && /^https?:\/\//i.test(raw)) {
     try {
@@ -628,6 +702,18 @@ async function start() {
   } catch(e) { starting = false; st('Gagal: ' + e.message); }
 }
 $('q').addEventListener('change', (e) => {
+  const ai = parseInt(e.target.value, 10);
+  if (abyssLevels.length) {
+    const s = abyssLevels[ai];
+    if (!s) return;
+    const pos = v.currentTime || 0;
+    $('qBadge').textContent = s.label;
+    $('title').textContent = $('title').textContent.replace(/ — [^—]+$/, '') + ' — ' + s.label;
+    v.src = s.purl || s.url;
+    v.play().then(() => { if (pos > 1) { try { v.currentTime = pos; } catch(_){} } }).catch(() => {});
+    st('Abyss ' + s.label + ' (' + fmtGB(s.size) + ')...');
+    return;
+  }
   if (!curMeta || !curLevels.length) return; // mode langsung: 1 kualitas
   const i = parseInt(e.target.value, 10);
   const pos = v.currentTime || 0;

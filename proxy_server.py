@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import json
 import re
 import shutil
@@ -5,6 +7,71 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urljoin, quote
+
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    HAS_CRYPTO = True
+except Exception:
+    HAS_CRYPTO = False
+
+
+def abyss_decrypt(media_str, seed_str):
+    """AES-CTR decrypt ala player abyss (lite.bundle.js SoTrym).
+    key = MD5(seed).hexdigest().encode() (32B = AES-256), iv = 16B pertama."""
+    hhex = hashlib.md5(seed_str.encode()).hexdigest()
+    key = hhex.encode()
+    iv = hhex.encode()[:16]
+    ct = media_str.encode('latin1')
+    pt = Cipher(algorithms.AES(key), modes.CTR(iv)).decryptor().update(ct)
+    return pt
+
+
+def fetch_abyss(slug):
+    if not HAS_CRYPTO:
+        raise RuntimeError('cryptography belum terinstal (pip install cryptography)')
+    page_url = 'https://player.abyssplayer.com/' + slug
+    req = urllib.request.Request(page_url, headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Referer': 'https://abyss.to/',
+        'Accept': 'text/html,*/*',
+    })
+    html = urllib.request.urlopen(req, timeout=25).read().decode('utf-8', errors='ignore')
+    m = re.search(r'const datas\s*=\s*"([^"]+)"', html)
+    if not m:
+        raise RuntimeError('datas tidak ketemu di HTML abyss')
+    txt = base64.b64decode(m.group(1)).decode('latin1')
+    info = json.loads(txt)
+    media = info.get('media', '')
+    seed = '%s:%s:%s' % (info.get('user_id'), info.get('slug'), info.get('md5_id'))
+    plain = json.loads(abyss_decrypt(media, seed).decode('utf-8'))
+    out = {
+        'slug': info.get('slug'),
+        'md5_id': info.get('md5_id'),
+        'user_id': info.get('user_id'),
+        'title': info.get('slug'),
+        'subtitles': (info.get('config') or {}).get('subtitles', []),
+    }
+    mp4 = (plain.get('mp4') or {})
+    sources = []
+    for s in (mp4.get('sources') or []):
+        full = s.get('url', '').rstrip('/') + '/' + s.get('path', '').lstrip('/')
+        sources.append({
+            'label': s.get('label'),
+            'res_id': s.get('res_id'),
+            'size': s.get('size'),
+            'url': full,
+        })
+    sources.sort(key=lambda x: (x.get('size') or 0), reverse=True)
+    out['sources'] = sources
+    out['domains'] = mp4.get('domains', [])
+    fds = []
+    for f in (mp4.get('fristDatas') or []):
+        u = f.get('url', '').replace('hstps://', 'https://')
+        fds.append({'res_id': f.get('res_id'), 'size': f.get('size'), 'url': u})
+    out['fristDatas'] = fds
+    if plain.get('hls'):
+        out['hls'] = plain.get('hls')
+    return out
 
 
 def rewrite_playlist(text, base):
@@ -57,6 +124,43 @@ class H(BaseHTTPRequestHandler):
 
     def _route(self):
         parsed = urlparse(self.path)
+        if parsed.path == '/abyss':
+            qs = parse_qs(parsed.query)
+            slug = qs.get('slug', [None])[0]
+            raw = qs.get('url', [None])[0]
+            if not slug and raw:
+                m = re.search(r'abyssplayer\.com/([A-Za-z0-9_-]{7,17})', raw)
+                if not m:
+                    ms = re.findall(r'[A-Za-z0-9_-]{7,17}', raw)
+                    slug = ms[-1] if ms else None
+                else:
+                    slug = m.group(1)
+            if not slug:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(b'{"error":"isi ?slug= atau ?url=player.abyssplayer.com/..."}')
+                return
+            try:
+                data = fetch_abyss(slug)
+                body = json.dumps(data).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'no-store, max-age=0')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                body = json.dumps({'error': 'abyss gagal: ' + str(e)}).encode()
+                self.send_response(502)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            return
         if parsed.path == '/proxy':
             target = parse_qs(parsed.query).get('url', [None])[0]
             if not target or not target.startswith('https://'):
@@ -64,9 +168,15 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             try:
+                if 'sssrr.org' in target:
+                    referer = 'https://player.abyssplayer.com/'
+                elif 'iamcdn.net' in target:
+                    referer = 'https://player.abyssplayer.com/'
+                else:
+                    referer = UPSTREAM_REFERER
                 hdrs = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Referer': UPSTREAM_REFERER,
+                    'Referer': referer,
                     'Accept': '*/*',
                 }
                 # Teruskan Range (wajib untuk file besar/download parsial)
@@ -118,4 +228,6 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-ThreadingHTTPServer(('0.0.0.0', 8902), H).serve_forever()
+
+if __name__ == '__main__':
+    ThreadingHTTPServer(('0.0.0.0', 8902), H).serve_forever()
