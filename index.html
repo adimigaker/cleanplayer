@@ -648,7 +648,7 @@ async function playAbyss(raw) {
     });
   }
   lastMeta = null; lastProxy = '';
-  st('OK — Abyss ' + slug + ': ' + abyssLevels.map(s => s.label).join(', ') + ' — memutar ' + top.label + ' via proxy...');
+  st('OK — Abyss ' + slug + ': ' + abyssLevels.map(s => s.label).join(', ') + ' — merakit ' + top.label + ' via VM...');
   v.src = top.purl;
   try { await v.play(); } catch(e) {}
   starting = false;
