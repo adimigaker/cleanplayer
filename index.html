@@ -600,7 +600,7 @@ async function playAbyss(raw) {
   if (!slug) { starting = false; st('Slug abyss tidak ketemu.'); return; }
   st('Minta link abyss untuk ' + slug + '...');
   abyssLevels = []; curLevels = []; curMeta = null;
-  let data = null;
+  let data = null, abyssBase = '';
   const tries = ['abyss?slug=' + encodeURIComponent(slug)];
   try {
     const auto = (await (await fetch('proxy-url.txt')).text()).trim();
@@ -614,7 +614,7 @@ async function playAbyss(raw) {
     try {
       const r = await fetch(u);
       data = await r.json();
-      if (data && data.sources && data.sources.length) break;
+      if (data && data.sources && data.sources.length) { abyssBase = u.split('/abyss')[0]; break; }
       err = (data && data.error) || ('HTTP ' + r.status);
       data = null;
     } catch(e) { err = e.message; }
@@ -624,7 +624,7 @@ async function playAbyss(raw) {
   }
   abyssLevels = data.sources.map((s) => ({
     label: s.label, res_id: s.res_id, size: s.size, url: s.url,
-    purl: '/proxy?url=' + encodeURIComponent(s.url),
+    purl: abyssBase + '/proxy?url=' + encodeURIComponent(s.url),
   }));
   const q = $('q');
   q.innerHTML = '';

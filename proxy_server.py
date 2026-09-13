@@ -209,8 +209,13 @@ class H(BaseHTTPRequestHandler):
                     self.wfile.write(body)
                 else:
                     # File besar (mp4/segmen/vtt): STREAMING langsung, tanpa buffer
+                    uptype = resp.headers.get('Content-Type', '')
+                    if 'sssrr.org' in target and 'octet-stream' in uptype:
+                        uptype = 'video/mp4'
                     self.send_response(status)
-                    for h in ('Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'):
+                    if uptype:
+                        self.send_header('Content-Type', uptype)
+                    for h in ('Content-Length', 'Content-Range', 'Accept-Ranges'):
                         hv = resp.headers.get(h)
                         if hv:
                             self.send_header(h, hv)
