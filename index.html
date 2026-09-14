@@ -359,6 +359,15 @@ v.addEventListener('timeupdate', () => {
 });
 v.addEventListener('loadedmetadata', () => { $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(durAsli()); });
 v.addEventListener('progress', gambarSeek);
+// Perekam kejadian media (diagnostik via status — tak mengubah perilaku)
+window._dbg = [];
+function catat(ev) { try { window._dbg.push(ev); if (window._dbg.length > 5) window._dbg.shift(); } catch(e) {} }
+function jejak() { try { return ' [' + window._dbg.slice(-3).join(' ') + ']'; } catch(e) { return ''; } }
+v.addEventListener('durationchange', () => catat('dur=' + Math.round(v.duration || 0)));
+v.addEventListener('playing', () => catat('main'));
+v.addEventListener('waiting', () => catat('tunggu'));
+v.addEventListener('stalled', () => catat('macet'));
+v.addEventListener('emptied', () => catat('kosong'));
 let durasiOverride = 0; // durasi asli dari server (ffprobe) — dipakai selagi browser belum tahu
 function durAsli() { return durasiOverride || v.duration; }
 function gambarSeek() {
@@ -815,11 +824,13 @@ async function playGdrive(raw) {
     } catch(e2) {}
     if (sesi !== (window._pdSesi || 0)) return;
     const purl = base + '/gdrive?id=' + encodeURIComponent(id);
+    if (v.currentSrc === purl) { st('Remux pun gagal. Coba lagi nanti.' + jejak()); return; } // anti-loop
+    v.removeEventListener('progress', desakGd);
     pasangSubGdrive(base + '/gsub?id=' + encodeURIComponent(id), purl);
     $('btnCC').className = 'on';
-    v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.'); };
+    v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.' + jejak()); };
     v.src = purl;
-    st(alasan + ' — via VM. Tekan Putar...');
+    st(alasan + ' — via VM. Tekan Putar...' + jejak());
   };
   // 1) Coba langsung dulu (MP4): moov dibaca tanpa VM → seekbar natural
   try {
@@ -843,13 +854,28 @@ async function playGdrive(raw) {
       clearTimeout(remuxTimerGd);
       v.onloadedmetadata = null;
       durasiOverride = 0;
+      catat('meta=' + Math.round(v.duration || 0));
       st('OK — GDrive langsung (' + fmt(d.duration) + ').');
     };
+    let cobaUlangGd = 0;
     v.onerror = () => {
       if (sesi !== (window._pdSesi || 0)) return;
+      const kod = (v.error && v.error.code) || '?';
+      catat('err' + kod);
+      if (v.currentSrc !== direct) return; // sudah remux, handler remux yg urus
+      if (kod === 2 && cobaUlangGd < 1) {
+        cobaUlangGd++;
+        st('Jaringan kedip — mengulang langsung...' + jejak());
+        setTimeout(() => {
+          if (sesi !== (window._pdSesi || 0) || v.currentSrc !== direct) return;
+          v.load();
+          desakGd();
+        }, 3000);
+        return;
+      }
       v.removeEventListener('progress', desakGd);
       clearTimeout(remuxTimerGd);
-      keRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
+      keRemux('Langsung gagal (' + kod + ')');
     };
     v.src = direct;
     desakGd();
@@ -929,8 +955,11 @@ async function playPixeldrain(raw) {
   };
   const pakaiRemux = async (alasan) => {
     if (sesi !== (window._pdSesi || 0)) return;
-    v.src = base + '/remux?url=' + encodeURIComponent(purl);
-    st(alasan + ' — dialihkan via VM (moov di depan). Tekan Putar bila belum jalan...');
+    const rurl = base + '/remux?url=' + encodeURIComponent(purl);
+    if (v.currentSrc === rurl) { st('Remux pun gagal. Coba lagi nanti.' + jejak()); return; } // anti-loop
+    v.removeEventListener('progress', desak);
+    v.src = rurl;
+    st(alasan + ' — dialihkan via VM (moov di depan). Tekan Putar bila belum jalan...' + jejak());
   };
   v.onloadedmetadata = () => {
     if (sesi !== (window._pdSesi || 0)) return;
@@ -939,13 +968,28 @@ async function playPixeldrain(raw) {
     clearTimeout(remuxTimer);
     v.onloadedmetadata = null;
     durasiOverride = 0; // browser sudah tahu yg sebenarnya
+    catat('meta=' + Math.round(v.duration || 0));
     st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
   };
+  let cobaUlang = 0;
   v.onerror = () => {
     if (sesi !== (window._pdSesi || 0)) return;
+    const kod = (v.error && v.error.code) || '?';
+    catat('err' + kod);
+    if (v.currentSrc !== purl) { st('Remux pun gagal (' + kod + '). Coba lagi nanti.' + jejak()); return; } // anti-loop
+    if (kod === 2 && cobaUlang < 1) {
+      cobaUlang++;
+      st('Jaringan kedip — mengulang langsung...' + jejak());
+      setTimeout(() => {
+        if (sesi !== (window._pdSesi || 0) || v.currentSrc !== purl) return;
+        v.load();
+        desak();
+      }, 3000);
+      return;
+    }
     v.removeEventListener('progress', desak);
     clearTimeout(remuxTimer);
-    pakaiRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
+    pakaiRemux('Langsung gagal (' + kod + ')');
   };
   v.src = purl;
   // Durasi natural tanpa VM dulu (CORS pixeldrain terbuka); gagal → ffprobe via VM
