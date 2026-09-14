@@ -153,11 +153,21 @@ function tapAt(clientX) {
   const x = (clientX - r.left) / r.width;
   tapZone(x < 0.32 ? 'L' : x > 0.68 ? 'R' : 'C');
 }
+// Lompat (±10 dtk) butuh peta waktu→byte (moov) di tangan browser.
+// Selama durasi asli masih di-override (browser belum tahu yg benar),
+// lompatan pasti gagal & browser melempar ke 0:00 — jadi ditahan dulu.
+function bisaLompat() {
+  if (!durasiOverride) return true;
+  return isFinite(v.duration) && v.duration >= durasiOverride * 0.9;
+}
 function tapZone(side) {
   const now = Date.now();
   if (lastTap.side === side && now - lastTap.t < 320) {
     lastTap = {side:'', t:0};
     if (side === 'C') { togglePlay(); }
+    else if (!bisaLompat()) {
+      st('Belum bisa lompat — indeks video (moov) belum masuk. Tunggu buffer jalan dulu...');
+    }
     else {
       v.currentTime = Math.max(0, v.currentTime + (side === 'L' ? -10 : 10));
       const f = $(side === 'L' ? 'flashL' : 'flashR');
