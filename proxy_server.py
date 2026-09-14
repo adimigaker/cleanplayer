@@ -7,6 +7,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -136,9 +137,23 @@ def abyss_frag(slug, q, idx):
     })
     data = urllib.request.urlopen(req, timeout=60).read()
     _ABYSS_FRAG_CACHE[key] = data
-    while len(_ABYSS_FRAG_CACHE) > 12:
+    while len(_ABYSS_FRAG_CACHE) > 24:
         _ABYSS_FRAG_CACHE.popitem(last=False)
     return data
+
+
+def prefetch_abyss(slug, qi, mulai, jumlah=3):
+    # Baca-duluan fragmen berikutnya di background agar playback tak jeda
+    # antar-respons (khusus link lambat / tunnel). Gagal = diam.
+    def jalan():
+        for i in range(mulai, mulai + jumlah):
+            try:
+                if (slug, qi, i) in _ABYSS_FRAG_CACHE:
+                    continue
+                abyss_frag(slug, qi, i)
+            except Exception:
+                break
+    threading.Thread(target=jalan, daemon=True).start()
 
 
 def rewrite_playlist(text, base):
@@ -505,6 +520,7 @@ class H(BaseHTTPRequestHandler):
                 buf = bytearray()
                 for i in range(n0, n1 + 1):
                     buf += abyss_frag(slug, qi, i)
+                prefetch_abyss(slug, qi, n1 + 1)
                 body = bytes(buf[a - n0 * ABYSS_FRAG:b - n0 * ABYSS_FRAG + 1])
                 self.send_response(status)
                 self.send_header('Content-Type', 'video/mp4')

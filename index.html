@@ -695,7 +695,7 @@ async function playAbyss(raw) {
     o.textContent = s.label + ' (' + fmtGB(s.size) + ')' + (s.ok ? '' : ' — mati');
     q.appendChild(o);
   });
-  const top = abyssLevels.find((s) => s.ok) || abyssLevels[0];
+  const top = abyssLevels.find((s) => s.ok && /720p/.test(s.label)) || abyssLevels.find((s) => s.ok) || abyssLevels[0];
   q.value = String(abyssLevels.indexOf(top));
   if (!top.ok) { starting = false; st('Abyss gagal: semua kualitas mati di server.'); return; }
   $('qBadge').textContent = top.label;
