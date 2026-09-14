@@ -666,6 +666,33 @@ async function playAbyss(raw) {
   starting = false;
   st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + ').');
 }
+function gdriveId(raw) {
+  const m = String(raw).match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)|drive\.google\.com\/open\?[^\s]*?id=([A-Za-z0-9_-]+)|drive\.google\.com\/uc\?[^\s]*?id=([A-Za-z0-9_-]+)/);
+  return m ? (m[1] || m[2] || m[3]) : '';
+}
+async function playGdrive(raw) {
+  const id = gdriveId(raw);
+  if (!id) { starting = false; st('ID Google Drive tidak ketemu di URL.'); return; }
+  st('Google Drive terdeteksi — menyiapkan stream via VM...');
+  let base = '';
+  try {
+    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    if (auto.startsWith('http')) base = auto.split('/proxy')[0];
+  } catch(e) {}
+  const purl = base + '/gdrive?id=' + encodeURIComponent(id);
+  abyssLevels = []; curLevels = []; curMeta = null;
+  lastMeta = null; lastProxy = '';
+  [...v.querySelectorAll('track')].forEach(t => t.remove());
+  $('subSel').innerHTML = '';
+  $('qBadge').textContent = 'GDRIVE';
+  $('title').textContent = 'GDrive ' + id;
+  document.title = '▶ GDrive ' + id;
+  v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.'); };
+  v.src = purl;
+  try { await v.play(); } catch(e) {}
+  starting = false;
+  st('OK — streaming GDrive ' + id + ' (remux via VM).');
+}
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
@@ -677,6 +704,12 @@ async function start() {
     return;
   }
   const raw = $('embed').value.trim();
+  // ── Google Drive: remux via /gdrive (MKV → MP4) ──
+  if (/drive\.google\.com/i.test(raw)) {
+    try { await playGdrive(raw); }
+    catch(e) { starting = false; st('Gagal: ' + e.message); }
+    return;
+  }
   // ── Abyss.to: decrypt via /abyss lalu MP4 langsung ──
   if (/abyssplayer\.com|abyss\.to/i.test(raw)) {
     try { await playAbyss(raw); }

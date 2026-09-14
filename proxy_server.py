@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -153,6 +154,26 @@ def rewrite_playlist(text, base):
             out.append(line)
     return '\n'.join(out) + '\n'
 
+GD_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+
+
+def gdrive_dl_url(file_id):
+    """URL download langsung file drive (lewati halaman virus-scan bila ada).
+    File kecil -> file langsung; file besar -> confirm=t&uuid=... ."""
+    warn = 'https://drive.google.com/uc?export=download&id=' + file_id
+    req = urllib.request.Request(warn, headers={'User-Agent': GD_UA, 'Accept': '*/*'})
+    resp = urllib.request.urlopen(req, timeout=30)
+    if 'html' not in (resp.headers.get_content_type() or ''):
+        return resp.geturl() or warn
+    html = resp.read().decode('utf-8', errors='ignore')
+    m = re.search(r'name="uuid" value="([^"]+)"', html)
+    dl = ('https://drive.usercontent.google.com/download?id=' + file_id +
+          '&export=download&confirm=t')
+    if m:
+        dl += '&uuid=' + m.group(1)
+    return dl
+
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 UPSTREAM_REFERER = 'https://ps21.seeks.cloud/'
 
@@ -287,6 +308,64 @@ class H(BaseHTTPRequestHandler):
                 self.send_header('Content-Length', str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            return
+        if parsed.path == '/gdrive':
+            # Google Drive -> remux on-the-fly MKV/dll jadi MP4 fragment
+            # (browser tak bisa memutar container MKV) via ffmpeg -c copy.
+            qs = parse_qs(parsed.query)
+            fid = qs.get('id', [None])[0]
+            raw = qs.get('url', [None])[0]
+            if not fid and raw:
+                m = (re.search(r'/file/d/([A-Za-z0-9_-]+)', raw) or
+                     re.search(r'[?&]id=([A-Za-z0-9_-]+)', raw))
+                fid = m.group(1) if m else None
+            if not fid or not re.fullmatch(r'[A-Za-z0-9_-]+', fid):
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(b'{"error":"isi ?id=FILEID atau ?url=drive.google.com/..."}')
+                return
+            proc = None
+            terkirim = False
+            try:
+                dl = gdrive_dl_url(fid)
+                cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
+                       '-headers', 'User-Agent: ' + GD_UA + '\r\n',
+                       '-i', dl,
+                       '-map', '0:v:0', '-map', '0:a:0?',
+                       '-c', 'copy',
+                       '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                       '-f', 'mp4', 'pipe:1']
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL)
+                head = proc.stdout.read(65536)
+                if not head:
+                    raise RuntimeError('ffmpeg gagal membuka file drive (ID salah / tidak public?)')
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'no-store, max-age=0')
+                self.end_headers()
+                terkirim = True
+                self.wfile.write(head)
+                shutil.copyfileobj(proc.stdout, self.wfile, length=65536)
+            except Exception as e:
+                if not terkirim:
+                    try:
+                        self.send_response(502)
+                        self.send_header('Content-Type', 'text/plain')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(('gdrive gagal: ' + str(e)).encode())
+                    except Exception:
+                        pass
+            finally:
+                if proc and proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
             return
         if parsed.path == '/proxy':
             target = parse_qs(parsed.query).get('url', [None])[0]
