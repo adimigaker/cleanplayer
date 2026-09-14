@@ -220,6 +220,132 @@ def remote_duration(url):
     return dur
 
 
+VFILE_DIR = '/tmp/cpvfile'
+VFILE_BUDGET = 1500 * 1024 * 1024  # cache maks 1.5GB, LRU
+_VFILE_JOBS = {}
+
+
+def _vfile_du():
+    try:
+        return sum(os.path.getsize(os.path.join(VFILE_DIR, f))
+                   for f in os.listdir(VFILE_DIR) if f.endswith('.mp4'))
+    except Exception:
+        return 0
+
+
+def vfile_evict(kecuali=None):
+    try:
+        fs = sorted((os.path.getmtime(os.path.join(VFILE_DIR, f)), f)
+                    for f in os.listdir(VFILE_DIR) if f.endswith('.mp4'))
+    except Exception:
+        return
+    for _, f in fs:
+        if _vfile_du() <= VFILE_BUDGET:
+            break
+        if f == (kecuali or '') + '.mp4':
+            continue
+        try:
+            os.remove(os.path.join(VFILE_DIR, f))
+        except Exception:
+            pass
+
+
+def vfile_start(pid, src):
+    # Remux moov-depan ke disk di background. Idempoten per pid.
+    job = _VFILE_JOBS.get(pid)
+    if job and (job.get('done') or (job.get('proc') and job['proc'].poll() is None)):
+        return job
+    os.makedirs(VFILE_DIR, exist_ok=True)
+    vfile_evict(pid)
+    path = os.path.join(VFILE_DIR, pid + '.mp4')
+    total = 0
+    try:  # total via Range 0-0 (lebih andal dari HEAD)
+        req = urllib.request.Request(src, headers={'User-Agent': GD_UA, 'Range': 'bytes=0-0'})
+        resp = urllib.request.urlopen(req, timeout=20)
+        m = re.search(r'/(\d+)', resp.headers.get('Content-Range') or '')
+        if m:
+            total = int(m.group(1))
+    except Exception:
+        pass
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+    cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
+           '-headers', 'User-Agent: ' + GD_UA + '\r\n',
+           '-i', src, '-map', '0:v:0', '-map', '0:a:0?',
+           '-c', 'copy', '-movflags', 'faststart', '-y', path]
+    proc = subprocess.Popen(cmd, stderr=subprocess.DEVNULL)
+    job = {'proc': proc, 'path': path, 'total': total, 'done': False, 'error': ''}
+    _VFILE_JOBS[pid] = job
+    return job
+
+
+def vfile_stat(pid):
+    job = _VFILE_JOBS.get(pid)
+    if not job:
+        return {'ready': False, 'progress': 0, 'size': 0}
+    if not job['done']:
+        rc = job['proc'].poll()
+        if rc is not None:
+            if rc == 0 and os.path.exists(job['path']):
+                job['done'] = True
+            else:
+                job['error'] = 'ffmpeg exit ' + str(rc)
+    size = 0
+    try:
+        size = os.path.getsize(job['path'])
+    except Exception:
+        pass
+    if job['done']:
+        return {'ready': True, 'size': size}
+    if job['error']:
+        return {'ready': False, 'error': job['error'], 'size': size}
+    prog = (size / job['total']) if job['total'] > 0 else 0
+    return {'ready': False, 'progress': round(min(0.99, prog), 3), 'size': size}
+
+
+def serve_range(handler, path):
+    # File statis dengan Range penuh (seekbar natural dua arah)
+    size = os.path.getsize(path)
+    rng = handler.headers.get('Range')
+    a, b, status = 0, size - 1, 200
+    if rng:
+        m = re.match(r'bytes=(\d*)-(\d*)', rng)
+        if m:
+            if m.group(1):
+                a = int(m.group(1))
+            if m.group(2):
+                b = int(m.group(2))
+            b = min(b, size - 1)
+            if a >= size:
+                handler.send_response(416)
+                handler.send_header('Content-Range', 'bytes */%d' % size)
+                handler.end_headers()
+                return
+            status = 206
+    handler.send_response(status)
+    handler.send_header('Content-Type', 'video/mp4')
+    handler.send_header('Accept-Ranges', 'bytes')
+    if status == 206:
+        handler.send_header('Content-Range', 'bytes %d-%d/%d' % (a, b, size))
+    handler.send_header('Content-Length', str(b - a + 1))
+    handler.send_header('Access-Control-Allow-Origin', '*')
+    handler.send_header('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges')
+    handler.send_header('Cache-Control', 'public, max-age=3600')
+    handler.end_headers()
+    with open(path, 'rb') as f:
+        f.seek(a)
+        sisa = b - a + 1
+        while sisa > 0:
+            chunk = f.read(min(65536, sisa))
+            if not chunk:
+                break
+            handler.wfile.write(chunk)
+            sisa -= len(chunk)
+
+
 def serve_ffmpeg_remux(handler, dl):
     """Remux video jarak-jauh jadi MP4 fragment (moov di depan) via ffmpeg
     -c copy. Mengembalikan True bila header terkirim (streaming jalan)."""
@@ -467,6 +593,60 @@ class H(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if parsed.path == '/pdfile':
+            # Versi geser: remux moov-depan sekali ke disk, serve Range penuh.
+            # ?url= (allowlist) + &prepare=1 / &stat=1, tanpa itu = stream file.
+            qs = parse_qs(parsed.query)
+            target = qs.get('url', [None])[0]
+            host = (urlparse(target).hostname or '') if target else ''
+            if not target or host not in ('pixeldrain.com', 'drive.usercontent.google.com'):
+                body = b'{"error":"isi ?url= pixeldrain/drive yg valid"}'
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            pid = hashlib.sha1(target.encode()).hexdigest()[:16]
+            if 'prepare' in qs or 'stat' in qs:
+                if 'prepare' in qs:
+                    try:
+                        vfile_start(pid, target)
+                    except Exception as e:
+                        body = json.dumps({'ready': False, 'error': str(e)}).encode()
+                        self.send_response(500)
+                        self.send_header('Content-Type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.send_header('Content-Length', str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                body = json.dumps(vfile_stat(pid)).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'no-store, max-age=0')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            stt = vfile_stat(pid)
+            fpath = os.path.join(VFILE_DIR, pid + '.mp4')
+            if not stt.get('ready') or not os.path.exists(fpath):
+                body = json.dumps(stt).encode()
+                self.send_response(409)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            try:
+                serve_range(self, fpath)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         if parsed.path == '/gsub':
             # Subtitle pertama file drive sebagai WebVTT siap <track>

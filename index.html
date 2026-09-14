@@ -166,6 +166,7 @@ function tapZone(side) {
     lastTap = {side:'', t:0};
     if (side === 'C') { togglePlay(); }
     else if (!bisaLompat()) {
+      mintaGeser(); // sekalian siapkan versi geser di VM bila ada jalannya
       st('Belum bisa lompat — indeks video (moov) belum masuk. Tunggu buffer jalan dulu...');
     }
     else {
@@ -401,7 +402,7 @@ function gambarSeek() {
   const lompat = (e) => {
     const D = durAsli();
     if (!D) return;
-    if (!bisaLompat()) { st('Belum bisa geser — indeks video (moov) belum masuk. Tunggu buffer jalan...'); return; }
+    if (!bisaLompat()) { mintaGeser(); st('Belum bisa geser — indeks video (moov) belum masuk. Tunggu buffer jalan...'); return; }
     const r = bar.getBoundingClientRect();
     const rasio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     v.currentTime = rasio * D;
@@ -785,9 +786,11 @@ async function durasiMp4Langsung(url, batasMs) {
   }
   let m = cariMoov(h.buf, 0, h.total);
   let moov;
+  let moovDepan = true; // false = moov di belakang (butuh versi geser utk seek)
   if (m && m.start + m.size <= 65536) {
     moov = h.buf.slice(m.start, m.start + m.size);
   } else {
+    moovDepan = false;
     // moov di belakang: ambil ekor, perbesar 2x lipat bila belum ketemu (maks 4x)
     let ekor = Math.min(h.total, Math.max(m ? m.size + 16 : 0, 2097152));
     m = null;
@@ -810,8 +813,69 @@ async function durasiMp4Langsung(url, batasMs) {
   }
   const dur = bacaMvhd(moov.slice(8));
   if (!(dur > 0)) throw new Error('durasi nol');
-  return { duration: dur, size: h.total };
+  return { duration: dur, size: h.total, moovDepan };
   } finally { clearTimeout(timerBatal); }
+}
+// ── Versi geser: VM remux moov-depan sekali ke disk, serve Range penuh.
+// Status diketuk = pindah (posisi & status putar dipertahankan).
+if (!window._statusTap) {
+  window._statusTap = true;
+  const stEl = document.getElementById('status');
+  if (stEl) stEl.addEventListener('click', () => {
+    if (typeof window._pindahGeser === 'function') {
+      const f = window._pindahGeser; window._pindahGeser = null; f();
+    }
+  });
+}
+function siapkanVersiGeser(base, sesi, urlFile) {
+  if (window._geserUntuk === sesi) return; // sudah diminta sesi ini
+  window._geserUntuk = sesi;
+  window._pindahGeser = null;
+  if (!base) { st('VM tak terjangkau — versi geser tak tersedia.'); return; }
+  const q = base + '/pdfile?url=' + encodeURIComponent(urlFile);
+  fetch(q + '&prepare=1').catch(() => {});
+  st('Menyiapkan versi geser di VM (sekali saja)...');
+  const timer = setInterval(async () => {
+    if (sesi !== (window._pdSesi || 0)) { clearInterval(timer); return; }
+    try {
+      const r = await fetch(q + '&stat=1');
+      const j = await r.json();
+      if (sesi !== (window._pdSesi || 0)) return;
+      if (j.ready) {
+        clearInterval(timer);
+        window._pindahGeser = () => pindahVersiGeser(sesi, q);
+        st('✅ Versi geser siap — ketuk status ini untuk pindah (posisi aman).');
+        return;
+      }
+      if (j.error) { clearInterval(timer); st('Versi geser gagal: ' + j.error); return; }
+      st('Menyiapkan versi geser... ' + Math.round((j.progress || 0) * 100) + '% (tetap bisa nonton)');
+    } catch(e) {}
+  }, 4000);
+}
+function pindahVersiGeser(sesi, q) {
+  if (sesi !== (window._pdSesi || 0)) return;
+  window._sudahGeser = sesi; // matikan fallback remux sesi ini
+  const t = v.currentTime || 0, lagi = !v.paused;
+  const sekali = () => {
+    v.removeEventListener('loadedmetadata', sekali);
+    try { if (t > 1) v.currentTime = t; } catch(e) {}
+    durasiOverride = 0;
+    if (lagi) v.play().catch(() => {});
+    st('OK — versi geser, seekbar natural dua arah.');
+  };
+  v.onloadedmetadata = null;
+  v.onerror = () => { const k = (v.error && v.error.code) || '?'; st('Versi geser error (' + k + ').' + jejak()); };
+  v.addEventListener('loadedmetadata', sekali);
+  window._srcSiap = [q];
+  st('Pindah ke versi geser...');
+  v.src = q;
+}
+// Dipanggil saat lompat/geser ditahan: siapkan versi geser bila ada jalannya
+function mintaGeser() {
+  const c = window._geserCtx;
+  if (!c || window._geserUntuk === c.sesi) return;
+  if (c.sesi !== (window._pdSesi || 0)) return;
+  siapkanVersiGeser(c.base, c.sesi, c.url);
 }
 function gdriveId(raw) {
   const m = String(raw).match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)|drive\.google\.com\/open\?[^\s]*?id=([A-Za-z0-9_-]+)|drive\.google\.com\/uc\?[^\s]*?id=([A-Za-z0-9_-]+)/);
@@ -827,16 +891,23 @@ async function playGdrive(raw) {
   $('btnCC').className = '';
   const sesi = window._pdSesi || 0;
   const direct = 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(id) + '&export=download&confirm=t';
-  if (v.currentSrc === direct && v.readyState >= 1) {
+  let baseAwal = '';
+  try {
+    const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
+    if (auto.startsWith('http')) baseAwal = auto.split('/proxy')[0];
+  } catch(e0) {}
+  if (sesi !== (window._pdSesi || 0)) return;
+  window._srcSiap = window._srcSiap || [];
+  if (v.currentSrc && window._srcSiap.includes(v.currentSrc) && v.readyState >= 1) {
     starting = false;
-    st('Video ini sudah siap — tekan segitiga play di gambar, jangan tombol Putar.');
+    st('Video ini sudah siap — segitiga untuk muter' + (window._pindahGeser ? ', ketuk status untuk versi geser.' : ', jangan tombol Putar.'));
     return;
   }
   $('qBadge').textContent = 'GDRIVE';
   $('title').textContent = 'GDrive ' + id;
   document.title = '▶ GDrive ' + id;
   const keRemux = async (alasan) => {
-    if (sesi !== (window._pdSesi || 0)) return;
+    if (sesi !== (window._pdSesi || 0) || window._sudahGeser === sesi) return;
     let base = '';
     try {
       const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
@@ -851,6 +922,7 @@ async function playGdrive(raw) {
     $('btnCC').className = 'on';
     v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.' + jejak()); };
     v.src = purl;
+    window._srcSiap = [purl];
     st(alasan + ' — via VM. Tekan Putar...' + jejak());
   };
   // 1) Coba langsung dulu (MP4): moov dibaca tanpa VM → seekbar natural
@@ -860,6 +932,8 @@ async function playGdrive(raw) {
     if (sesi !== (window._pdSesi || 0)) return;
     durasiOverride = d.duration;
     gambarSeek();
+    window._geserCtx = { base: baseAwal, sesi, url: direct };
+    if (!d.moovDepan) siapkanVersiGeser(baseAwal, sesi, direct);
     let remuxTimerGd = 0, metadataMasukGd = false;
     const desakGd = () => {
       clearTimeout(remuxTimerGd);
@@ -900,6 +974,7 @@ async function playGdrive(raw) {
       keRemux('Langsung gagal (' + kod + ')');
     };
     v.src = direct;
+    window._srcSiap = [direct];
     desakGd();
     starting = false;
     st('GDrive siap (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
@@ -939,9 +1014,10 @@ async function playPixeldrain(raw) {
     return;
   }
   const purl = 'https://pixeldrain.com/api/file/' + encodeURIComponent(id);
-  if (v.currentSrc === purl && v.readyState >= 1) {
+  window._srcSiap = window._srcSiap || [];
+  if (v.currentSrc && window._srcSiap.includes(v.currentSrc) && v.readyState >= 1) {
     starting = false;
-    st('Video ini sudah siap — tekan segitiga play di gambar, jangan tombol Putar.');
+    st('Video ini sudah siap — segitiga untuk muter' + (window._pindahGeser ? ', ketuk status untuk versi geser.' : ', jangan tombol Putar.'));
     return;
   }
   const gb = ukuran ? ' (' + (ukuran / 1073741824).toFixed(2) + ' GB)' : '';
@@ -965,6 +1041,7 @@ async function playPixeldrain(raw) {
       if (!(j.duration > 0)) throw new Error((j.error || 'respon aneh').slice(0, 60));
       durasiOverride = j.duration;
       gambarSeek();
+      window._geserCtx = { base, sesi, url: purl };
       st(nama + gb + ' (' + fmt(j.duration) + ') — memuat gambar, tekan Putar...');
     } catch(e) {
       if (sesi !== (window._pdSesi || 0)) return;
@@ -976,12 +1053,13 @@ async function playPixeldrain(raw) {
     }
   };
   const pakaiRemux = async (alasan) => {
-    if (sesi !== (window._pdSesi || 0)) return;
+    if (sesi !== (window._pdSesi || 0) || window._sudahGeser === sesi) return;
     const rurl = base + '/remux?url=' + encodeURIComponent(purl);
     if (v.currentSrc === rurl) { st('Remux pun gagal. Coba lagi nanti.' + jejak()); return; } // anti-loop
     v.removeEventListener('progress', desak);
     durasiOverride = 0; // remux tak punya total durasi — jangan pakai angka lama
     v.src = rurl;
+    window._srcSiap = [rurl];
     st(alasan + ' — dialihkan via VM (moov di depan). Tekan Putar bila belum jalan...' + jejak());
   };
   v.onloadedmetadata = () => {
@@ -1018,12 +1096,15 @@ async function playPixeldrain(raw) {
     pakaiRemux('Langsung gagal (' + kod + ')');
   };
   v.src = purl;
+  window._srcSiap = [purl];
   // Durasi natural tanpa VM dulu (CORS pixeldrain terbuka); gagal → ffprobe via VM
   durasiMp4Langsung(purl).then((d) => {
     if (sesi !== (window._pdSesi || 0)) return;
     durasiOverride = d.duration;
     gambarSeek();
-    st(nama + gb + ' (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
+    window._geserCtx = { base, sesi, url: purl };
+    if (!d.moovDepan) siapkanVersiGeser(base, sesi, purl);
+    else st(nama + gb + ' (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
   }).catch(() => {
     if (sesi !== (window._pdSesi || 0)) return;
     tanyaDurasi(true);
