@@ -363,7 +363,11 @@ v.addEventListener('progress', gambarSeek);
 window._dbg = [];
 function catat(ev) { try { window._dbg.push(ev); if (window._dbg.length > 5) window._dbg.shift(); } catch(e) {} }
 function jejak() { try { return ' [' + window._dbg.slice(-3).join(' ') + ']'; } catch(e) { return ''; } }
-v.addEventListener('durationchange', () => catat('dur=' + Math.round(v.duration || 0)));
+v.addEventListener('durationchange', () => {
+  catat('dur=' + Math.round(v.duration || 0));
+  // Browser akhirnya tahu yg benar → lepas override bila angkanya waras
+  if (durasiOverride && isFinite(v.duration) && v.duration >= durasiOverride * 0.9) durasiOverride = 0;
+});
 v.addEventListener('playing', () => catat('main'));
 v.addEventListener('waiting', () => catat('tunggu'));
 v.addEventListener('stalled', () => catat('macet'));
@@ -826,6 +830,7 @@ async function playGdrive(raw) {
     const purl = base + '/gdrive?id=' + encodeURIComponent(id);
     if (v.currentSrc === purl) { st('Remux pun gagal. Coba lagi nanti.' + jejak()); return; } // anti-loop
     v.removeEventListener('progress', desakGd);
+    durasiOverride = 0; // remux tak punya total durasi — jangan pakai angka lama
     pasangSubGdrive(base + '/gsub?id=' + encodeURIComponent(id), purl);
     $('btnCC').className = 'on';
     v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.' + jejak()); };
@@ -853,8 +858,9 @@ async function playGdrive(raw) {
       v.removeEventListener('progress', desakGd);
       clearTimeout(remuxTimerGd);
       v.onloadedmetadata = null;
-      durasiOverride = 0;
-      catat('meta=' + Math.round(v.duration || 0));
+      const nat = v.duration || 0;
+      catat('meta=' + Math.round(nat));
+      if (!durasiOverride || (isFinite(nat) && nat >= durasiOverride * 0.9)) durasiOverride = 0;
       st('OK — GDrive langsung (' + fmt(d.duration) + ').');
     };
     let cobaUlangGd = 0;
@@ -958,6 +964,7 @@ async function playPixeldrain(raw) {
     const rurl = base + '/remux?url=' + encodeURIComponent(purl);
     if (v.currentSrc === rurl) { st('Remux pun gagal. Coba lagi nanti.' + jejak()); return; } // anti-loop
     v.removeEventListener('progress', desak);
+    durasiOverride = 0; // remux tak punya total durasi — jangan pakai angka lama
     v.src = rurl;
     st(alasan + ' — dialihkan via VM (moov di depan). Tekan Putar bila belum jalan...' + jejak());
   };
@@ -967,8 +974,11 @@ async function playPixeldrain(raw) {
     v.removeEventListener('progress', desak);
     clearTimeout(remuxTimer);
     v.onloadedmetadata = null;
-    durasiOverride = 0; // browser sudah tahu yg sebenarnya
-    catat('meta=' + Math.round(v.duration || 0));
+    const nat = v.duration || 0;
+    catat('meta=' + Math.round(nat));
+    // Browser kadang ngotot durasi tebakan (0:20) padahal kita tahu aslinya —
+    // override hanya dilepas bila angka browser waras
+    if (!durasiOverride || (isFinite(nat) && nat >= durasiOverride * 0.9)) durasiOverride = 0;
     st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
   };
   let cobaUlang = 0;
