@@ -630,7 +630,7 @@ async function playAbyss(raw) {
   let data = null, abyssBase = '';
   const tries = ['abyss?slug=' + encodeURIComponent(slug)];
   try {
-    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
     if (auto.startsWith('http')) {
       const base = auto.split('/proxy')[0];
       tries.push(base + '/abyss?slug=' + encodeURIComponent(slug));
@@ -722,7 +722,7 @@ async function playGdrive(raw) {
   st('Google Drive terdeteksi — menyiapkan stream via VM...');
   let base = '';
   try {
-    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
     if (auto.startsWith('http')) base = auto.split('/proxy')[0];
   } catch(e) {}
   const purl = base + '/gdrive?id=' + encodeURIComponent(id);
@@ -778,19 +778,29 @@ async function playPixeldrain(raw) {
   let remuxTimer = 0;
   let base = '';
   try {
-    const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+    const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
     if (auto.startsWith('http')) base = auto.split('/proxy')[0];
   } catch(e) {}
   // Durasi asli via VM (ffprobe, cepat) → seekbar natural sejak detik awal
-  try {
-    const r = await fetch(base + '/pmeta?url=' + encodeURIComponent(purl));
-    const j = await r.json();
-    if (sesi === (window._pdSesi || 0) && j.duration > 0) {
+  const tanyaDurasi = async (cobaLagi) => {
+    try {
+      const r = await fetch(base + '/pmeta?url=' + encodeURIComponent(purl));
+      const j = await r.json();
+      if (sesi !== (window._pdSesi || 0)) return;
+      if (!(j.duration > 0)) throw new Error((j.error || 'respon aneh').slice(0, 60));
       durasiOverride = j.duration;
       gambarSeek();
       st(nama + gb + ' (' + fmt(j.duration) + ') — memuat gambar, tekan Putar...');
+    } catch(e) {
+      if (sesi !== (window._pdSesi || 0)) return;
+      st('Durasi asli tak termuat (' + e.message.slice(0, 80) + ') — lanjut mode langsung...');
+      if (cobaLagi) setTimeout(() => {
+        if (sesi !== (window._pdSesi || 0) || v.src !== purl) return; // sudah pindah remux / ganti video
+        tanyaDurasi(false);
+      }, 30000);
     }
-  } catch(e) {}
+  };
+  tanyaDurasi(true);
   const pakaiRemux = async (alasan) => {
     if (sesi !== (window._pdSesi || 0)) return;
     v.src = base + '/remux?url=' + encodeURIComponent(purl);
@@ -860,7 +870,7 @@ async function start() {
   let proxy = $('proxy').value.trim();
   try {
     try {
-      const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+      const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
       if (auto.startsWith('http')) proxy = auto;
     } catch(e) {}
     const id = hashId($('embed').value);
