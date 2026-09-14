@@ -197,6 +197,29 @@ def gdrive_sub_vtt(file_id):
     return vtt
 
 
+_PMETA_CACHE = {}
+
+
+def remote_duration(url):
+    """Durasi detik file video jarak-jauh via ffprobe (baca ranged, cepat).
+    Cache ≤20 URL."""
+    hit = _PMETA_CACHE.get(url)
+    if hit:
+        return hit
+    cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+           '-of', 'default=nw=1:nk=1',
+           '-headers', 'User-Agent: ' + GD_UA + '\r\n', url]
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                       timeout=90)
+    dur = float((p.stdout or b'').decode().strip())
+    if not (dur > 0):
+        raise RuntimeError('durasi tak terbaca')
+    if len(_PMETA_CACHE) > 20:
+        _PMETA_CACHE.pop(next(iter(_PMETA_CACHE)))
+    _PMETA_CACHE[url] = dur
+    return dur
+
+
 def serve_ffmpeg_remux(handler, dl):
     """Remux video jarak-jauh jadi MP4 fragment (moov di depan) via ffmpeg
     -c copy. Mengembalikan True bila header terkirim (streaming jalan)."""
@@ -423,6 +446,27 @@ class H(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             serve_ffmpeg_remux(self, target)
+            return
+        if parsed.path == '/pmeta':
+            # Durasi detik file video (allowlist host) via ffprobe cepat
+            qs = parse_qs(parsed.query)
+            target = qs.get('url', [None])[0]
+            host = (urlparse(target).hostname or '') if target else ''
+            try:
+                if not target or host not in ('pixeldrain.com',):
+                    raise RuntimeError('isi ?url= pixeldrain yg valid')
+                body = json.dumps({'duration': remote_duration(target)}).encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+            except Exception as e:
+                body = json.dumps({'error': 'pmeta gagal: ' + str(e)}).encode()
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'public, max-age=3600')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if parsed.path == '/gsub':
             # Subtitle pertama file drive sebagai WebVTT siap <track>
