@@ -712,6 +712,78 @@ async function pasangSubGdrive(url, purlAktif) {
     applySubLine();
   } catch(e) { $('btnCC').className = ''; }
 }
+// Baca durasi MP4 langsung dari server-nya (Range + CORS terbuka) tanpa VM:
+// ambil kepala 64KB, kalau moov di belakang ambil ekornya. Lempar {mkv:true}
+// bila container MKV, error biasa bila HTML/gagal.
+async function durasiMp4Langsung(url) {
+  const ambil = async (a, b) => {
+    const r = await fetch(url, { headers: { Range: 'bytes=' + a + '-' + b } });
+    if (r.status !== 206 && r.status !== 200) throw new Error('HTTP ' + r.status);
+    if (r.status === 200) throw new Error('server tak dukung Range');
+    const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)/);
+    const total = m ? parseInt(m[1], 10) : 0;
+    if (!total) throw new Error('ukuran tak diketahui');
+    return { buf: new Uint8Array(await r.arrayBuffer()), total, off: a };
+  };
+  const cariMoov = (u8, baseOff, total) => {
+    for (let i = u8.length - 4; i >= 0; i--) {
+      if (u8[i] === 0x6D && u8[i+1] === 0x6F && u8[i+2] === 0x6F && u8[i+3] === 0x76) {
+        if (i < 4) continue;
+        const sz = u8[i-4] * 16777216 + u8[i-3] * 65536 + u8[i-2] * 256 + u8[i-1];
+        const bs = baseOff + i - 4;
+        if (sz > 8 && bs + sz <= total) return { start: bs, size: sz };
+      }
+    }
+    return null;
+  };
+  const bacaMvhd = (moov) => {
+    for (let i = 0; i + 8 <= moov.length; i++) {
+      if (moov[i+4] === 0x6D && moov[i+5] === 0x76 && moov[i+6] === 0x68 && moov[i+7] === 0x64) {
+        const bs = i, dv = new DataView(moov.buffer, moov.byteOffset);
+        const ver = moov[bs + 8];
+        let ts, dur;
+        if (ver === 1) { ts = dv.getUint32(bs + 24); dur = dv.getUint32(bs + 28) * 4294967296 + dv.getUint32(bs + 32); }
+        else { ts = dv.getUint32(bs + 20); dur = dv.getUint32(bs + 24); }
+        if (ts > 0 && dur > 0) return dur / ts;
+        throw new Error('mvhd kosong');
+      }
+    }
+    throw new Error('mvhd tak ketemu');
+  };
+  const h = await ambil(0, 65535);
+  if (h.buf[0] === 0x3C) throw new Error('bukan file video (HTML)');
+  if (h.buf[0] === 0x1A && h.buf[1] === 0x45 && h.buf[2] === 0xDF && h.buf[3] === 0xA3) {
+    const e = new Error('container MKV'); e.mkv = true; throw e;
+  }
+  let m = cariMoov(h.buf, 0, h.total);
+  let moov;
+  if (m && m.start + m.size <= 65536) {
+    moov = h.buf.slice(m.start, m.start + m.size);
+  } else {
+    // moov di belakang: ambil ekor, perbesar 2x lipat bila belum ketemu (maks 4x)
+    let ekor = Math.min(h.total, Math.max(m ? m.size + 16 : 0, 2097152));
+    m = null;
+    let t = null;
+    for (let coba = 0; coba < 4 && !m; coba++) {
+      t = await ambil(h.total - ekor, h.total - 1);
+      const k = cariMoov(t.buf, h.total - ekor, h.total);
+      if (k && k.start >= h.total - ekor && k.start + k.size <= h.total) m = k;
+      else ekor = Math.min(h.total, ekor * 2);
+    }
+    if (!m) throw new Error('moov tak ketemu');
+    if (m.size > 16777216) throw new Error('moov raksasa');
+    if (m.size > ekor) {
+      const g = await ambil(m.start, m.start + m.size - 1);
+      moov = g.buf;
+    } else {
+      const rel = m.start - (h.total - ekor);
+      moov = t.buf.slice(rel, rel + m.size);
+    }
+  }
+  const dur = bacaMvhd(moov.slice(8));
+  if (!(dur > 0)) throw new Error('durasi nol');
+  return { duration: dur, size: h.total };
+}
 function gdriveId(raw) {
   const m = String(raw).match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)|drive\.google\.com\/open\?[^\s]*?id=([A-Za-z0-9_-]+)|drive\.google\.com\/uc\?[^\s]*?id=([A-Za-z0-9_-]+)/);
   return m ? (m[1] || m[2] || m[3]) : '';
@@ -719,28 +791,65 @@ function gdriveId(raw) {
 async function playGdrive(raw) {
   const id = gdriveId(raw);
   if (!id) { starting = false; st('ID Google Drive tidak ketemu di URL.'); return; }
-  st('Google Drive terdeteksi — menyiapkan stream via VM...');
-  let base = '';
-  try {
-    const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
-    if (auto.startsWith('http')) base = auto.split('/proxy')[0];
-  } catch(e) {}
-  const purl = base + '/gdrive?id=' + encodeURIComponent(id);
   abyssLevels = []; curLevels = []; curMeta = null;
   lastMeta = null; lastProxy = '';
   [...v.querySelectorAll('track')].forEach(t => t.remove());
   $('subSel').innerHTML = '';
-  // Subtitle sidecar: ambil WebVTT via fetch lalu injeksi cue manual
-  // (lebih kebal daripada <track>, yg sering diblokir lintas-origin).
-  pasangSubGdrive(base + '/gsub?id=' + encodeURIComponent(id), purl);
-  $('btnCC').className = 'on';
+  $('btnCC').className = '';
+  const sesi = window._pdSesi || 0;
+  const direct = 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(id) + '&export=download&confirm=t';
   $('qBadge').textContent = 'GDRIVE';
   $('title').textContent = 'GDrive ' + id;
   document.title = '▶ GDrive ' + id;
-  v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.'); };
-  v.src = purl;
+  const keRemux = async (alasan) => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    let base = '';
+    try {
+      const auto = (await (await fetch('proxy-url.txt?t=' + Date.now())).text()).trim();
+      if (auto.startsWith('http')) base = auto.split('/proxy')[0];
+    } catch(e2) {}
+    if (sesi !== (window._pdSesi || 0)) return;
+    const purl = base + '/gdrive?id=' + encodeURIComponent(id);
+    pasangSubGdrive(base + '/gsub?id=' + encodeURIComponent(id), purl);
+    $('btnCC').className = 'on';
+    v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.'); };
+    v.src = purl;
+    st(alasan + ' — via VM. Tekan Putar...');
+  };
+  // 1) Coba langsung dulu (MP4): moov dibaca tanpa VM → seekbar natural
+  try {
+    st('Google Drive terdeteksi — baca info file...');
+    const d = await durasiMp4Langsung(direct);
+    if (sesi !== (window._pdSesi || 0)) return;
+    durasiOverride = d.duration;
+    gambarSeek();
+    const remuxTimer = setTimeout(() => {
+      if (sesi !== (window._pdSesi || 0) || v.src !== direct) return;
+      keRemux('File lambat dibuka');
+    }, 20000);
+    v.onloadedmetadata = () => {
+      if (sesi !== (window._pdSesi || 0)) return;
+      clearTimeout(remuxTimer);
+      v.onloadedmetadata = null;
+      durasiOverride = 0;
+      st('OK — GDrive langsung (' + fmt(d.duration) + ').');
+    };
+    v.onerror = () => {
+      if (sesi !== (window._pdSesi || 0)) return;
+      clearTimeout(remuxTimer);
+      keRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
+    };
+    v.src = direct;
+    starting = false;
+    st('GDrive siap (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
+    return;
+  } catch(e) {
+    if (sesi !== (window._pdSesi || 0)) return;
+    // MKV / halaman confirm / gagal baca → remux via VM di bawah
+  }
+  // 2) MKV atau perlu uuid confirm → remux via VM (+ subtitle sidecar)
+  keRemux('Menyiapkan via VM (MKV/confirm)');
   starting = false;
-  st('OK — GDrive ' + id + ' siap (remux via VM). Tekan Putar.');
 }
 function pixeldrainId(raw) {
   const m = String(raw).match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]+)/);
@@ -800,7 +909,6 @@ async function playPixeldrain(raw) {
       }, 30000);
     }
   };
-  tanyaDurasi(true);
   const pakaiRemux = async (alasan) => {
     if (sesi !== (window._pdSesi || 0)) return;
     v.src = base + '/remux?url=' + encodeURIComponent(purl);
@@ -819,6 +927,16 @@ async function playPixeldrain(raw) {
     pakaiRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
   };
   v.src = purl;
+  // Durasi natural tanpa VM dulu (CORS pixeldrain terbuka); gagal → ffprobe via VM
+  durasiMp4Langsung(purl).then((d) => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    durasiOverride = d.duration;
+    gambarSeek();
+    st(nama + gb + ' (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
+  }).catch(() => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    tanyaDurasi(true);
+  });
   // File yg moov-nya di belakang tak kunjung metadata → otomatis via VM
   remuxTimer = setTimeout(() => pakaiRemux('File lambat dibuka'), 20000);
   starting = false;
