@@ -401,6 +401,7 @@ function gambarSeek() {
   const lompat = (e) => {
     const D = durAsli();
     if (!D) return;
+    if (!bisaLompat()) { st('Belum bisa geser — indeks video (moov) belum masuk. Tunggu buffer jalan...'); return; }
     const r = bar.getBoundingClientRect();
     const rasio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     v.currentTime = rasio * D;
@@ -738,9 +739,13 @@ async function pasangSubGdrive(url, purlAktif) {
 // Baca durasi MP4 langsung dari server-nya (Range + CORS terbuka) tanpa VM:
 // ambil kepala 64KB, kalau moov di belakang ambil ekornya. Lempar {mkv:true}
 // bila container MKV, error biasa bila HTML/gagal.
-async function durasiMp4Langsung(url) {
+async function durasiMp4Langsung(url, batasMs) {
+  // Batas waktu agar fetch ekor tak mencekik bandwidth selamanya
+  const ctl = new AbortController();
+  const timerBatal = setTimeout(() => { try { ctl.abort(); } catch(e) {} }, batasMs || 30000);
+  try {
   const ambil = async (a, b) => {
-    const r = await fetch(url, { headers: { Range: 'bytes=' + a + '-' + b } });
+    const r = await fetch(url, { headers: { Range: 'bytes=' + a + '-' + b }, signal: ctl.signal });
     if (r.status !== 206 && r.status !== 200) throw new Error('HTTP ' + r.status);
     if (r.status === 200) throw new Error('server tak dukung Range');
     const m = (r.headers.get('Content-Range') || '').match(/\/(\d+)/);
@@ -806,6 +811,7 @@ async function durasiMp4Langsung(url) {
   const dur = bacaMvhd(moov.slice(8));
   if (!(dur > 0)) throw new Error('durasi nol');
   return { duration: dur, size: h.total };
+  } finally { clearTimeout(timerBatal); }
 }
 function gdriveId(raw) {
   const m = String(raw).match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)|drive\.google\.com\/open\?[^\s]*?id=([A-Za-z0-9_-]+)|drive\.google\.com\/uc\?[^\s]*?id=([A-Za-z0-9_-]+)/);
@@ -871,7 +877,7 @@ async function playGdrive(raw) {
       const nat = v.duration || 0;
       catat('meta=' + Math.round(nat));
       if (!durasiOverride || (isFinite(nat) && nat >= durasiOverride * 0.9)) durasiOverride = 0;
-      st('OK — GDrive langsung (' + fmt(d.duration) + ').');
+      st('OK — GDrive langsung (' + fmt(d.duration) + ').' + jejak());
     };
     let cobaUlangGd = 0;
     v.onerror = () => {
@@ -989,7 +995,7 @@ async function playPixeldrain(raw) {
     // Browser kadang ngotot durasi tebakan (0:20) padahal kita tahu aslinya —
     // override hanya dilepas bila angka browser waras
     if (!durasiOverride || (isFinite(nat) && nat >= durasiOverride * 0.9)) durasiOverride = 0;
-    st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
+    st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.' + jejak());
   };
   let cobaUlang = 0;
   v.onerror = () => {
