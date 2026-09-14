@@ -716,6 +716,36 @@ async function playAbyss(raw) {
   v.src = top.purl;
   starting = false;
   st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + '). Tekan Putar.');
+  // Versi penuh: VM rakit file statis sekali di background; pindah otomatis
+  // saat siap (byte identik, seekbar natural dua arah). Posisi & putar dipertahankan.
+  const qiTop = abyssLevels.indexOf(top);
+  const sesiAb = (window._pdSesi || 0);
+  try { fetch(abyssBase + '/pdfile?ab=' + encodeURIComponent(slug) + '&q=' + qiTop + '&prepare=1').catch(() => {}); } catch(e) {}
+  const pantauAb = async () => {
+    if (sesiAb !== (window._pdSesi || 0)) return;
+    try {
+      const r = await fetch(abyssBase + '/pdfile?ab=' + encodeURIComponent(slug) + '&q=' + qiTop + '&stat=1');
+      const j = await r.json();
+      if (sesiAb !== (window._pdSesi || 0)) return;
+      if (j.ready) {
+        const urlPenuh = abyssBase + '/pdfile?ab=' + encodeURIComponent(slug) + '&q=' + qiTop;
+        if (v.currentSrc === urlPenuh) return;
+        const t = v.currentTime || 0, lagi = !v.paused;
+        const sekali = () => {
+          v.removeEventListener('loadedmetadata', sekali);
+          try { if (t > 1) v.currentTime = t; } catch(e2) {}
+          if (lagi) v.play().catch(() => {});
+          st('OK — versi penuh Abyss ' + top.label + ' (seekbar natural).');
+        };
+        v.addEventListener('loadedmetadata', sekali);
+        v.src = urlPenuh;
+        st('Versi penuh siap — pindah (posisi aman)...');
+        return;
+      }
+    } catch(e) {}
+    setTimeout(pantauAb, 8000);
+  };
+  setTimeout(pantauAb, 10000);
 }
 async function pasangSubGdrive(url, purlAktif) {
   try {

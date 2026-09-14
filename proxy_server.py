@@ -284,6 +284,11 @@ def vfile_start(pid, src):
         pass
     if os.path.exists(path):
         try:
+            if total > 0 and os.path.getsize(path) == total:
+                # File sudah lengkap di disk (mis. hasil rakitan manual) — pakai
+                _VFILE_JOBS[pid] = {'proc': None, 'thread': None, 'path': path,
+                                    'total': total, 'done': True, 'error': ''}
+                return _VFILE_JOBS[pid]
             os.remove(path)
         except Exception:
             pass
@@ -302,12 +307,23 @@ def vfile_stat(pid):
     if not job:
         return {'ready': False, 'progress': 0, 'size': 0}
     if not job['done']:
-        rc = job['proc'].poll()
-        if rc is not None:
-            if rc == 0 and os.path.exists(job['path']):
-                job['done'] = True
-            else:
-                job['error'] = 'ffmpeg exit ' + str(rc)
+        if job.get('proc') is not None:
+            rc = job['proc'].poll()
+            if rc is not None:
+                if rc == 0 and os.path.exists(job['path']):
+                    job['done'] = True
+                else:
+                    job['error'] = 'ffmpeg exit ' + str(rc)
+        elif job.get('thread') is not None:
+            if not job['thread'].is_alive() and not job.get('error'):
+                try:
+                    ok = job['total'] > 0 and os.path.getsize(job['path']) >= job['total']
+                except Exception:
+                    ok = False
+                if ok:
+                    job['done'] = True
+                else:
+                    job['error'] = job.get('error') or 'rakit gagal'
     size = 0
     try:
         size = os.path.getsize(job['path'])
@@ -359,6 +375,53 @@ def serve_range(handler, path):
                 break
             handler.wfile.write(chunk)
             sisa -= len(chunk)
+
+
+def vfile_start_abyss(pid, slug, qi):
+    # Rakit MP4 abyss dari fragmen ke disk di background (sekali saja).
+    # Hasil byte-identik + moov-depan → serve statis Range penuh.
+    job = _VFILE_JOBS.get(pid)
+    if job and (job.get('done') or (job.get('thread') and job['thread'].is_alive())):
+        return job
+    os.makedirs(VFILE_DIR, exist_ok=True)
+    vfile_evict(pid)
+    try:
+        meta = abyss_meta(slug)
+        src = meta['sources'][qi]
+        total = src['size']
+    except Exception as e:
+        raise RuntimeError('abyss meta gagal: ' + str(e))
+    path = os.path.join(VFILE_DIR, pid + '.mp4')
+    if os.path.exists(path):
+        try:
+            if total > 0 and os.path.getsize(path) == total:
+                _VFILE_JOBS[pid] = {'proc': None, 'thread': None, 'path': path,
+                                    'total': total, 'done': True, 'error': ''}
+                return _VFILE_JOBS[pid]
+            os.remove(path)
+        except Exception:
+            pass
+    job = {'proc': None, 'thread': None, 'path': path,
+           'total': total, 'done': False, 'error': ''}
+
+    def jalan():
+        try:
+            n = (total + ABYSS_FRAG - 1) // ABYSS_FRAG
+            with open(path, 'wb') as f:
+                for i in range(n):
+                    f.write(abyss_frag(slug, qi, i))
+        except Exception as e:
+            job['error'] = 'frag: ' + str(e)[:120]
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+    t = threading.Thread(target=jalan, daemon=True)
+    job['thread'] = t
+    _VFILE_JOBS[pid] = job
+    t.start()
+    return job
 
 
 def serve_ffmpeg_remux(handler, dl):
@@ -611,25 +674,41 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if parsed.path == '/pdfile':
-            # Versi geser: remux moov-depan sekali ke disk, serve Range penuh.
-            # ?url= (allowlist) + &prepare=1 / &stat=1, tanpa itu = stream file.
+            # Versi geser: file moov-depan di disk, serve Range penuh.
+            # Sumber: ?url= (pixeldrain/drive, remux ffmpeg) atau
+            # ?ab=SLUG&q=N (abyss, rakit fragmen). &prepare=1 / &stat=1.
             qs = parse_qs(parsed.query)
             target = qs.get('url', [None])[0]
-            host = (urlparse(target).hostname or '') if target else ''
-            if not target or host not in ('pixeldrain.com', 'drive.usercontent.google.com'):
-                body = b'{"error":"isi ?url= pixeldrain/drive yg valid"}'
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            pid = hashlib.sha1(target.encode()).hexdigest()[:16]
+            ab_slug = qs.get('ab', [None])[0]
+            try:
+                ab_q = int((qs.get('q', ['1']))[0])
+            except Exception:
+                ab_q = 1
+            pid = None
+            if ab_slug:
+                if not re.fullmatch(r'[A-Za-z0-9_-]{7,17}', ab_slug):
+                    ab_slug = None
+                else:
+                    pid = 'ab_%s_%d' % (ab_slug, ab_q)
+            if pid is None:
+                host = (urlparse(target).hostname or '') if target else ''
+                if not target or host not in ('pixeldrain.com', 'drive.usercontent.google.com'):
+                    body = b'{"error":"isi ?url= pixeldrain/drive atau ?ab=SLUG&q=N"}'
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                pid = hashlib.sha1(target.encode()).hexdigest()[:16]
             if 'prepare' in qs or 'stat' in qs:
                 if 'prepare' in qs:
                     try:
-                        vfile_start(pid, target)
+                        if ab_slug:
+                            vfile_start_abyss(pid, ab_slug, ab_q)
+                        else:
+                            vfile_start(pid, target)
                     except Exception as e:
                         body = json.dumps({'ready': False, 'error': str(e)}).encode()
                         self.send_response(500)
