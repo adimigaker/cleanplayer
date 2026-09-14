@@ -798,6 +798,11 @@ async function playGdrive(raw) {
   $('btnCC').className = '';
   const sesi = window._pdSesi || 0;
   const direct = 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(id) + '&export=download&confirm=t';
+  if (v.currentSrc === direct && v.readyState >= 1) {
+    starting = false;
+    st('Video ini sudah siap — tekan segitiga play di gambar, jangan tombol Putar.');
+    return;
+  }
   $('qBadge').textContent = 'GDRIVE';
   $('title').textContent = 'GDrive ' + id;
   document.title = '▶ GDrive ' + id;
@@ -823,23 +828,31 @@ async function playGdrive(raw) {
     if (sesi !== (window._pdSesi || 0)) return;
     durasiOverride = d.duration;
     gambarSeek();
-    const remuxTimer = setTimeout(() => {
-      if (sesi !== (window._pdSesi || 0) || v.src !== direct) return;
-      keRemux('File lambat dibuka');
-    }, 20000);
+    let remuxTimerGd = 0, metadataMasukGd = false;
+    const desakGd = () => {
+      clearTimeout(remuxTimerGd);
+      if (!metadataMasukGd && sesi === (window._pdSesi || 0) && v.currentSrc === direct) {
+        remuxTimerGd = setTimeout(() => keRemux('File lambat dibuka'), 20000);
+      }
+    };
+    v.addEventListener('progress', desakGd);
     v.onloadedmetadata = () => {
       if (sesi !== (window._pdSesi || 0)) return;
-      clearTimeout(remuxTimer);
+      metadataMasukGd = true;
+      v.removeEventListener('progress', desakGd);
+      clearTimeout(remuxTimerGd);
       v.onloadedmetadata = null;
       durasiOverride = 0;
       st('OK — GDrive langsung (' + fmt(d.duration) + ').');
     };
     v.onerror = () => {
       if (sesi !== (window._pdSesi || 0)) return;
-      clearTimeout(remuxTimer);
+      v.removeEventListener('progress', desakGd);
+      clearTimeout(remuxTimerGd);
       keRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
     };
     v.src = direct;
+    desakGd();
     starting = false;
     st('GDrive siap (' + fmt(d.duration) + ') — memuat gambar, tekan Putar...');
     return;
@@ -878,6 +891,11 @@ async function playPixeldrain(raw) {
     return;
   }
   const purl = 'https://pixeldrain.com/api/file/' + encodeURIComponent(id);
+  if (v.currentSrc === purl && v.readyState >= 1) {
+    starting = false;
+    st('Video ini sudah siap — tekan segitiga play di gambar, jangan tombol Putar.');
+    return;
+  }
   const gb = ukuran ? ' (' + (ukuran / 1073741824).toFixed(2) + ' GB)' : '';
   $('qBadge').textContent = 'PD';
   $('title').textContent = nama + gb;
@@ -916,6 +934,8 @@ async function playPixeldrain(raw) {
   };
   v.onloadedmetadata = () => {
     if (sesi !== (window._pdSesi || 0)) return;
+    metadataMasuk = true;
+    v.removeEventListener('progress', desak);
     clearTimeout(remuxTimer);
     v.onloadedmetadata = null;
     durasiOverride = 0; // browser sudah tahu yg sebenarnya
@@ -923,6 +943,7 @@ async function playPixeldrain(raw) {
   };
   v.onerror = () => {
     if (sesi !== (window._pdSesi || 0)) return;
+    v.removeEventListener('progress', desak);
     clearTimeout(remuxTimer);
     pakaiRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
   };
@@ -937,8 +958,17 @@ async function playPixeldrain(raw) {
     if (sesi !== (window._pdSesi || 0)) return;
     tanyaDurasi(true);
   });
-  // File yg moov-nya di belakang tak kunjung metadata → otomatis via VM
-  remuxTimer = setTimeout(() => pakaiRemux('File lambat dibuka'), 20000);
+  // Fallback remux hanya bila BENAR-BENAR macet: tiap ada progres, jam diulang.
+  // Koneksi lambat tapi jalan takkan dialihkan paksa.
+  let metadataMasuk = false;
+  const desak = () => {
+    clearTimeout(remuxTimer);
+    if (!metadataMasuk && sesi === (window._pdSesi || 0) && v.currentSrc === purl) {
+      remuxTimer = setTimeout(() => pakaiRemux('File lambat dibuka'), 20000);
+    }
+  };
+  v.addEventListener('progress', desak);
+  desak();
   starting = false;
 }
 async function start() {
