@@ -742,6 +742,43 @@ async function playGdrive(raw) {
   starting = false;
   st('OK — streaming GDrive ' + id + ' (remux via VM).');
 }
+function pixeldrainId(raw) {
+  const m = String(raw).match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]+)/);
+  return m ? m[1] : '';
+}
+async function playPixeldrain(raw) {
+  const id = pixeldrainId(raw);
+  if (!id) { starting = false; st('ID Pixeldrain tidak ketemu di URL.'); return; }
+  st('Pixeldrain terdeteksi — cek info file...');
+  abyssLevels = []; curLevels = []; curMeta = null;
+  lastMeta = null; lastProxy = '';
+  [...v.querySelectorAll('track')].forEach(t => t.remove());
+  $('subSel').innerHTML = '';
+  $('btnCC').className = '';
+  let nama = id, ukuran = 0;
+  try {
+    const r = await fetch('https://pixeldrain.com/api/file/' + encodeURIComponent(id) + '/info');
+    const j = await r.json();
+    if (!j.success) throw new Error('file tidak ketemu / sudah dihapus');
+    nama = j.name || id;
+    ukuran = j.size || 0;
+  } catch(e) { starting = false; st('Pixeldrain gagal: ' + e.message); return; }
+  if (/\.mkv$/i.test(nama)) {
+    starting = false;
+    st('File ini MKV — browser tak bisa memutar. Minta versi MP4-nya.');
+    return;
+  }
+  const purl = 'https://pixeldrain.com/api/file/' + encodeURIComponent(id);
+  const gb = ukuran ? ' (' + (ukuran / 1073741824).toFixed(2) + ' GB)' : '';
+  $('qBadge').textContent = 'PD';
+  $('title').textContent = nama + gb;
+  document.title = '▶ ' + nama;
+  v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — kuota pixeldrain mungkin habis, coba lagi nanti.'); };
+  v.src = purl;
+  try { await v.play(); } catch(e) {}
+  starting = false;
+  st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
+}
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
   starting = true; fragErr = 0;
@@ -753,6 +790,12 @@ async function start() {
     return;
   }
   const raw = $('embed').value.trim();
+  // ── Pixeldrain: /u/ID atau /api/file/ID → file mentah langsung ──
+  if (/pixeldrain\.com/i.test(raw)) {
+    try { await playPixeldrain(raw); }
+    catch(e) { starting = false; st('Gagal: ' + e.message); }
+    return;
+  }
   // ── Google Drive: remux via /gdrive (MKV → MP4) ──
   if (/drive\.google\.com/i.test(raw)) {
     try { await playGdrive(raw); }
