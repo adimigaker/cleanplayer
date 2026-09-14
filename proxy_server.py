@@ -174,6 +174,29 @@ def gdrive_dl_url(file_id):
     return dl
 
 
+_GSUB_CACHE = {}
+
+
+def gdrive_sub_vtt(file_id):
+    """Ambil subtitle pertama file drive sebagai WebVTT (cache ≤20 file)."""
+    hit = _GSUB_CACHE.get(file_id)
+    if hit:
+        return hit
+    dl = gdrive_dl_url(file_id)
+    cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
+           '-headers', 'User-Agent: ' + GD_UA + '\r\n',
+           '-i', dl, '-map', '0:s:0', '-f', 'webvtt', 'pipe:1']
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                       timeout=600)
+    vtt = p.stdout or b''
+    if not vtt.lstrip().startswith(b'WEBVTT'):
+        raise RuntimeError('file ini tak ada subtitle')
+    if len(_GSUB_CACHE) > 20:
+        _GSUB_CACHE.pop(next(iter(_GSUB_CACHE)))
+    _GSUB_CACHE[file_id] = vtt
+    return vtt
+
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 UPSTREAM_REFERER = 'https://ps21.seeks.cloud/'
 
@@ -366,6 +389,32 @@ class H(BaseHTTPRequestHandler):
                         proc.kill()
                     except Exception:
                         pass
+            return
+        if parsed.path == '/gsub':
+            # Subtitle pertama file drive sebagai WebVTT siap <track>
+            qs = parse_qs(parsed.query)
+            fid = qs.get('id', [None])[0]
+            if not fid or not re.fullmatch(r'[A-Za-z0-9_-]+', fid):
+                self.send_response(400)
+                self.end_headers()
+                return
+            try:
+                vtt = gdrive_sub_vtt(fid)
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/vtt; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.send_header('Content-Length', str(len(vtt)))
+                self.end_headers()
+                self.wfile.write(vtt)
+            except Exception as e:
+                body = ('gsub gagal: ' + str(e)).encode()
+                self.send_response(404)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
             return
         if parsed.path == '/proxy':
             target = parse_qs(parsed.query).get('url', [None])[0]

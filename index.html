@@ -38,8 +38,12 @@
   #barTop .sp{flex:1}
   #barBot{display:flex;align-items:center;gap:8px}
   #qBadge{font-size:15px;font-weight:bold;color:#fff}
-  #seek{flex:1;accent-color:#0f0;margin:0}
-  #seekRow{display:flex;margin-top:2px}
+  #seekRow{display:flex;margin-top:6px}
+  #seekbar{position:relative;flex:1;height:16px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+  #seekbar::before{content:'';position:absolute;left:0;right:0;height:4px;border-radius:2px;background:rgba(255,255,255,.22)}
+  #seekbuf{position:absolute;left:0;height:4px;border-radius:2px;background:rgba(255,255,255,.35);width:0}
+  #seekplay{position:absolute;left:0;height:4px;border-radius:2px;background:#00a4dc;width:0}
+  #seekknob{position:absolute;width:12px;height:12px;border-radius:50%;background:#00a4dc;transform:translateX(-50%);left:0}
   #time{font-size:12px;color:#ddd;white-space:nowrap}
   #subPos{width:100%;accent-color:#00a4dc}
   #bar select{padding:6px;font-size:13px}
@@ -58,11 +62,9 @@
   #bar button.on{color:#00a4dc}
   #bigplay span{width:76px;height:76px;border-radius:50%;background:rgba(20,20,20,.55);color:#fff;font-size:44px;display:flex;align-items:center;justify-content:center}
   #bigplay span.material-icons{font-size:44px}
-  #seek{accent-color:#00a4dc}
   #subPos{accent-color:#00a4dc}
   #qBadge{color:#fff;font-weight:normal}
   #time{color:#eee}
-  #seek{flex:1;margin:0}
   #time{font-size:12px;white-space:nowrap}
   #subPos{width:100%}
   #bar select{padding:6px;font-size:13px}
@@ -96,7 +98,7 @@
       <button id="btnDL" onclick="doDownload()" title="Download"><span class="material-icons">file_download</span></button>
       <button onclick="toggleFS()" title="Fullscreen"><span class="material-icons">fullscreen</span></button>
     </div>
-    <div id="seekRow"><input id="seek" type="range" min="0" max="1000" value="0"></div>
+    <div id="seekRow"><div id="seekbar"><div id="seekbuf"></div><div id="seekplay"></div><div id="seekknob"></div></div></div>
   </div>
   <div id="cfg">
     <label>Kualitas</label><select id="q"><option value="-1">Auto</option></select>
@@ -352,13 +354,36 @@ function pickSub(i) {
   applySubLine();
 }
 v.addEventListener('timeupdate', () => {
-  if (v.duration) $('seek').value = Math.round(v.currentTime / v.duration * 1000);
+  gambarSeek();
   $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
 });
 v.addEventListener('loadedmetadata', () => { $('time').textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration); });
-$('seek').addEventListener('input', (e) => {
-  if (v.duration) v.currentTime = e.target.value / 1000 * v.duration;
-});
+v.addEventListener('progress', gambarSeek);
+function gambarSeek() {
+  if (!v.duration) return;
+  const pct = v.currentTime / v.duration * 100;
+  $('seekplay').style.width = pct + '%';
+  $('seekknob').style.left = pct + '%';
+  try {
+    const b = v.buffered;
+    if (b.length) $('seekbuf').style.width = (b.end(b.length - 1) / v.duration * 100) + '%';
+  } catch(e) {}
+}
+(function() {
+  const bar = $('seekbar');
+  let geser = false;
+  const lompat = (e) => {
+    if (!v.duration) return;
+    const r = bar.getBoundingClientRect();
+    const rasio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    v.currentTime = rasio * v.duration;
+    gambarSeek();
+  };
+  bar.addEventListener('pointerdown', (e) => { geser = true; try { bar.setPointerCapture(e.pointerId); } catch(_){} lompat(e); });
+  bar.addEventListener('pointermove', (e) => { if (geser) lompat(e); });
+  bar.addEventListener('pointerup', () => { geser = false; });
+  bar.addEventListener('pointercancel', () => { geser = false; });
+})();
 let subLine = -1;
 function applySubLine() {
   for (const tr of v.textTracks) {
@@ -684,6 +709,14 @@ async function playGdrive(raw) {
   lastMeta = null; lastProxy = '';
   [...v.querySelectorAll('track')].forEach(t => t.remove());
   $('subSel').innerHTML = '';
+  // Subtitle sidecar: ffmpeg ambil track pertama jadi WebVTT di server
+  const tr = document.createElement('track');
+  tr.kind = 'subtitles'; tr.label = 'Indonesia'; tr.srclang = 'id';
+  tr.src = base + '/gsub?id=' + encodeURIComponent(id);
+  tr.default = true;
+  tr.addEventListener('error', () => { tr.remove(); $('btnCC').className = ''; });
+  v.appendChild(tr);
+  $('btnCC').className = 'on';
   $('qBadge').textContent = 'GDRIVE';
   $('title').textContent = 'GDrive ' + id;
   document.title = '▶ GDrive ' + id;
