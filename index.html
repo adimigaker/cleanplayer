@@ -691,6 +691,26 @@ async function playAbyss(raw) {
   starting = false;
   st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + ').');
 }
+async function pasangSubGdrive(url, purlAktif) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const txt = await r.text();
+    if (!txt.lstrip().startsWith('WEBVTT')) throw new Error('bukan vtt');
+    if (new URL(purlAktif, location.href).href !== v.src) return; // user keburu ganti video
+    [...v.querySelectorAll('track')].forEach(t => {
+      if (t.src.startsWith('blob:')) { try { URL.revokeObjectURL(t.src); } catch(_) {} }
+      t.remove();
+    });
+    const t = document.createElement('track');
+    t.kind = 'subtitles'; t.label = 'Indonesia'; t.srclang = 'id';
+    t.src = URL.createObjectURL(new Blob([txt], { type: 'text/vtt' }));
+    t.default = true;
+    v.appendChild(t);
+    $('btnCC').className = 'on';
+    applySubLine();
+  } catch(e) { $('btnCC').className = ''; }
+}
 function gdriveId(raw) {
   const m = String(raw).match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)|drive\.google\.com\/open\?[^\s]*?id=([A-Za-z0-9_-]+)|drive\.google\.com\/uc\?[^\s]*?id=([A-Za-z0-9_-]+)/);
   return m ? (m[1] || m[2] || m[3]) : '';
@@ -709,13 +729,9 @@ async function playGdrive(raw) {
   lastMeta = null; lastProxy = '';
   [...v.querySelectorAll('track')].forEach(t => t.remove());
   $('subSel').innerHTML = '';
-  // Subtitle sidecar: ffmpeg ambil track pertama jadi WebVTT di server
-  const tr = document.createElement('track');
-  tr.kind = 'subtitles'; tr.label = 'Indonesia'; tr.srclang = 'id';
-  tr.src = base + '/gsub?id=' + encodeURIComponent(id);
-  tr.default = true;
-  tr.addEventListener('error', () => { tr.remove(); $('btnCC').className = ''; });
-  v.appendChild(tr);
+  // Subtitle sidecar: ambil WebVTT via fetch lalu injeksi cue manual
+  // (lebih kebal daripada <track>, yg sering diblokir lintas-origin).
+  pasangSubGdrive(base + '/gsub?id=' + encodeURIComponent(id), purl);
   $('btnCC').className = 'on';
   $('qBadge').textContent = 'GDRIVE';
   $('title').textContent = 'GDrive ' + id;
