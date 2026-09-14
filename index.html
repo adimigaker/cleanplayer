@@ -72,7 +72,7 @@
 </head>
 <body>
 <h2>Clean Player</h2>
-<p class="note">Tempel URL embed seeks / abyss / MP4-HLS langsung — player otomatis memutar.</p>
+<p class="note">Tempel URL embed seeks / abyss / MP4-HLS langsung — tekan Putar untuk memutar.</p>
 
 <label>URL seeks / abyss / langsung</label>
 <input id="embed" type="text" value="" placeholder="https://ps21.seeks.cloud/#plq5e atau https://player.abyssplayer.com/FwgRBdn_d">
@@ -526,13 +526,12 @@ async function playVariant(i, resume) {
       starting = false;
       st('OK — ' + (curMeta && curMeta.title ? curMeta.title + ' — ' : '') + $('qBadge').textContent);
       if (resume > 1) { try { v.currentTime = resume; } catch(e){} }
-      v.play().catch(() => {});
     });
     hls.on(Hls.Events.ERROR, (e, data) => {
       if (data.fatal) { starting = false; st('Error: ' + data.details + ' — cek proxy.'); }
     });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-    v.src = blobUrl; v.play().catch(() => {}); st('Native HLS.');
+    v.src = blobUrl; starting = false; st('Native HLS — tekan Putar.');
   } else st('Browser tidak mendukung HLS.');
 }
 async function playMaster(masterUrl, proxy, meta) {
@@ -586,9 +585,8 @@ async function playDirectMp4(url, label) {
   document.title = '▶ ' + ($('title').textContent || 'Clean Player');
   lastMeta = null; lastProxy = '';
   v.src = url;
-  try { await v.play(); } catch(e) {}
   starting = false;
-  st('OK — memutar langsung (tanpa token/proxy).');
+  st('OK — langsung siap (tanpa token/proxy). Tekan Putar.');
 }
 async function playDirectHls(url) {
   if (hls) { try { hls.destroy(); } catch(e){} hls = null; }
@@ -603,12 +601,12 @@ async function playDirectHls(url) {
     hls = new Hls();
     hls.loadSource(url);
     hls.attachMedia(v);
-    hls.on(Hls.Events.MANIFEST_PARSED, () => { starting = false; v.play().catch(() => {}); st('OK — HLS langsung.'); });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { starting = false; st('OK — HLS siap. Tekan Putar.'); });
     hls.on(Hls.Events.ERROR, (e, data) => {
       if (data.fatal) { starting = false; st('Error: ' + data.details + ' — host mungkin tak mengizinkan CORS.'); }
     });
   } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-    v.src = url; v.play().catch(() => {}); starting = false; st('Native HLS.');
+    v.src = url; starting = false; st('Native HLS — tekan Putar.');
   } else { starting = false; st('Browser tidak mendukung HLS.'); }
 }
 // ── Abyss.to (MP4 progresif via /abyss endpoint) ──
@@ -687,9 +685,8 @@ async function playAbyss(raw) {
   st('OK — Abyss ' + slug + ': ' + abyssLevels.map(s => s.label).join(', ') + ' — merakit ' + top.label + ' via VM...');
   v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — coba kualitas lain atau tab baru.'); };
   v.src = top.purl;
-  try { await v.play(); } catch(e) {}
   starting = false;
-  st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + ').');
+  st('OK — Abyss ' + slug + ' ' + top.label + ' (' + fmtGB(top.size) + '). Tekan Putar.');
 }
 async function pasangSubGdrive(url, purlAktif) {
   try {
@@ -738,9 +735,8 @@ async function playGdrive(raw) {
   document.title = '▶ GDrive ' + id;
   v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — pastikan file public & VM on.'); };
   v.src = purl;
-  try { await v.play(); } catch(e) {}
   starting = false;
-  st('OK — streaming GDrive ' + id + ' (remux via VM).');
+  st('OK — GDrive ' + id + ' siap (remux via VM). Tekan Putar.');
 }
 function pixeldrainId(raw) {
   const m = String(raw).match(/pixeldrain\.com\/(?:u|api\/file)\/([A-Za-z0-9]+)/);
@@ -782,8 +778,7 @@ async function playPixeldrain(raw) {
       const auto = (await (await fetch('proxy-url.txt')).text()).trim();
       const base = auto.startsWith('http') ? auto.split('/proxy')[0] : '';
       v.src = base + '/remux?url=' + encodeURIComponent(purl);
-      try { await v.play(); } catch(e) {}
-      st(alasan + ' — dialihkan via VM (moov di depan)...');
+      st(alasan + ' — dialihkan via VM (moov di depan). Tekan Putar bila belum jalan...');
     } catch(e) { st('Gagal: ' + e.message); }
   };
   v.onloadedmetadata = () => {
@@ -798,7 +793,6 @@ async function playPixeldrain(raw) {
     pakaiRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
   };
   v.src = purl;
-  try { await v.play(); } catch(e) {}
   // File yg moov-nya di belakang tak kunjung metadata → otomatis via VM
   remuxTimer = setTimeout(() => pakaiRemux('File lambat dibuka'), 20000);
   starting = false;
