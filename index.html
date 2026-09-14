@@ -773,14 +773,39 @@ async function playPixeldrain(raw) {
   $('qBadge').textContent = 'PD';
   $('title').textContent = nama + gb;
   document.title = '▶ ' + nama;
-  v.onerror = () => { st('Video error (' + ((v.error && v.error.code) || '?') + ') — kuota pixeldrain mungkin habis, coba lagi nanti.'); };
+  st('Membuka ' + nama + gb + '...');
+  const sesi = window._pdSesi || 0;
+  let remuxTimer = 0;
+  const pakaiRemux = async (alasan) => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    try {
+      const auto = (await (await fetch('proxy-url.txt')).text()).trim();
+      const base = auto.startsWith('http') ? auto.split('/proxy')[0] : '';
+      v.src = base + '/remux?url=' + encodeURIComponent(purl);
+      try { await v.play(); } catch(e) {}
+      st(alasan + ' — dialihkan via VM (moov di depan)...');
+    } catch(e) { st('Gagal: ' + e.message); }
+  };
+  v.onloadedmetadata = () => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    clearTimeout(remuxTimer);
+    v.onloadedmetadata = null;
+    st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
+  };
+  v.onerror = () => {
+    if (sesi !== (window._pdSesi || 0)) return;
+    clearTimeout(remuxTimer);
+    pakaiRemux('Langsung gagal (' + ((v.error && v.error.code) || '?') + ')');
+  };
   v.src = purl;
   try { await v.play(); } catch(e) {}
+  // File yg moov-nya di belakang tak kunjung metadata → otomatis via VM
+  remuxTimer = setTimeout(() => pakaiRemux('File lambat dibuka'), 20000);
   starting = false;
-  st('OK — streaming ' + nama + gb + ' langsung dari Pixeldrain.');
 }
 async function start() {
   if (starting) { st('Sabar — masih memuat...'); return; }
+  window._pdSesi = (window._pdSesi || 0) + 1; // batalkan handler pixeldrain basi
   starting = true; fragErr = 0;
   subDoneFor = '';
   $('stage').classList.remove('portrait');

@@ -197,6 +197,51 @@ def gdrive_sub_vtt(file_id):
     return vtt
 
 
+def serve_ffmpeg_remux(handler, dl):
+    """Remux video jarak-jauh jadi MP4 fragment (moov di depan) via ffmpeg
+    -c copy. Mengembalikan True bila header terkirim (streaming jalan)."""
+    proc = None
+    terkirim = False
+    try:
+        cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
+               '-headers', 'User-Agent: ' + GD_UA + '\r\n',
+               '-i', dl,
+               '-map', '0:v:0', '-map', '0:a:0?',
+               '-c', 'copy',
+               '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+               '-f', 'mp4', 'pipe:1']
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL)
+        head = proc.stdout.read(65536)
+        if not head:
+            raise RuntimeError('ffmpeg gagal membuka sumber (tidak public / format aneh?)')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'video/mp4')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Cache-Control', 'no-store, max-age=0')
+        handler.end_headers()
+        terkirim = True
+        handler.wfile.write(head)
+        shutil.copyfileobj(proc.stdout, handler.wfile, length=65536)
+    except Exception as e:
+        if not terkirim:
+            try:
+                handler.send_response(502)
+                handler.send_header('Content-Type', 'text/plain')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                handler.end_headers()
+                handler.wfile.write(('remux gagal: ' + str(e)).encode())
+            except Exception:
+                pass
+    finally:
+        if proc and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    return terkirim
+
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 UPSTREAM_REFERER = 'https://ps21.seeks.cloud/'
 
@@ -349,46 +394,35 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b'{"error":"isi ?id=FILEID atau ?url=drive.google.com/..."}')
                 return
-            proc = None
-            terkirim = False
             try:
                 dl = gdrive_dl_url(fid)
-                cmd = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
-                       '-headers', 'User-Agent: ' + GD_UA + '\r\n',
-                       '-i', dl,
-                       '-map', '0:v:0', '-map', '0:a:0?',
-                       '-c', 'copy',
-                       '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-                       '-f', 'mp4', 'pipe:1']
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL)
-                head = proc.stdout.read(65536)
-                if not head:
-                    raise RuntimeError('ffmpeg gagal membuka file drive (ID salah / tidak public?)')
-                self.send_response(200)
-                self.send_header('Content-Type', 'video/mp4')
-                self.send_header('Access-Control-Allow-Origin', '*')
-                self.send_header('Cache-Control', 'no-store, max-age=0')
-                self.end_headers()
-                terkirim = True
-                self.wfile.write(head)
-                shutil.copyfileobj(proc.stdout, self.wfile, length=65536)
             except Exception as e:
-                if not terkirim:
-                    try:
-                        self.send_response(502)
-                        self.send_header('Content-Type', 'text/plain')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.wfile.write(('gdrive gagal: ' + str(e)).encode())
-                    except Exception:
-                        pass
-            finally:
-                if proc and proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
+                body = ('gdrive gagal: ' + str(e)).encode()
+                self.send_response(502)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            serve_ffmpeg_remux(self, dl)
+            return
+        if parsed.path == '/remux':
+            # Remux URL video langsung (allowlist host) jadi MP4 fragment
+            # untuk file yg moov-nya di belakang (browser tak mulai2).
+            qs = parse_qs(parsed.query)
+            target = qs.get('url', [None])[0]
+            host = (urlparse(target).hostname or '') if target else ''
+            if not target or host not in ('pixeldrain.com',):
+                body = b'{"error":"isi ?url= pixeldrain yg valid"}'
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            serve_ffmpeg_remux(self, target)
             return
         if parsed.path == '/gsub':
             # Subtitle pertama file drive sebagai WebVTT siap <track>
