@@ -1,1 +1,1 @@
-https://cleanplayer.duckdns.org/proxy?url=
+https://soldiers-usr-port-mentor.trycloudflare.com/proxy?url=
