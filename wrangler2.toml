@@ -1,0 +1,5 @@
+name = "originproxy2"
+main = "originproxy_worker.js"
+compatibility_date = "2025-09-01"
+account_id = "52f0f46d2cd608b71aa298bba928b413"
+workers_dev = true
