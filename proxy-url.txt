@@ -1,1 +1,1 @@
-https://cleanplayer.duckdns.org/proxy?url=
+https://api.trycloudflare.com/proxy?url=
