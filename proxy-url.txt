@@ -1,1 +1,1 @@
-https://api.trycloudflare.com/proxy?url=
+https://graduate-stop-str-april.trycloudflare.com/proxy?url=
